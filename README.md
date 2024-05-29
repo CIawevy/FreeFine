@@ -1,5 +1,5 @@
-# [Reggio] Real-Imgae-Geometric-Editing Pipeline
--Free exploration of tuning-free geometric editing pipeline 
+# [Reggio] Real-Image-Geometric-Editing Pipeline
+- Free exploration of tuning-free geometric editing pipeline 
 
 
 ## 🚩 **New Features/Updates**
@@ -17,42 +17,18 @@
 - dynamic_thr_vis.py playful visualization tools for dynamic thr function  selection.
 
 # 🔥🔥🔥 Main Features  
-### **Mask Expansion **  
-expansion mask from given obj mask & binary mask refine 
-
-<p align="center">
-  <img src=![Mask-Expansion](examples/mask-expansion.png)
- height=220>
-</p>
 
 ### **Mask Expansion**  
 ![mask-expansion](examples/mask-expansion.png)
 
 
 ### **Object Moving with box input**  
-
-<<<<<<< HEAD
 ![CPIG-SD-inpaint](examples/sd-inpainting.png)
-=======
-<p align="center">
-  <img src=![CPIG-SD](examples/sd-inpainting.png)
- height=220>
-</p>
->>>>>>> 993bba2 (Update README.md)
-
-
-<<<<<<< HEAD
 
 ### **Object Moving with casual draw**  
 
 ![CPIG-LaMa-inpaint](examples/lama-inpainting.png)
 
-=======
-<p align="center">
-  <img src=![CPIG-lama](examples/lama-inpainting.png)
- height=220>
-</p>
->>>>>>> 993bba2 (Update README.md)
 
 # 🔧 Dependencies and Installation
 
