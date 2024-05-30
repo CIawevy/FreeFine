@@ -967,6 +967,13 @@ def create_my_demo_full(runner):
                                 step=0.1,
                                 value=1,
                                 interactive=True)
+                            rotation_angle = gr.Slider(
+                                label="Object clock-wise rotation angle [-180,180]",
+                                minimum=-180,
+                                maximum=180,
+                                step=10,
+                                value=0,
+                                interactive=True)
 
 
 
@@ -1025,7 +1032,7 @@ def create_my_demo_full(runner):
 
         run_button.click(fn=runner,
                          inputs=[original_image, mask, prompt,  seed, selected_points, guidance_scale, num_step, max_resolution,mode,dilate_kernel_size,
-                                 start_step,mask_ref,eta,use_mask_expansion,standard_drawing,contrast_beta,exp_mask_type], outputs=[output_edit ,output ,noised_img ,INP_Mask,EXP_Mask,EXP_Mask_2])
+                                 start_step,mask_ref,eta,use_mask_expansion,standard_drawing,contrast_beta,exp_mask_type,resize_scale,rotation_angle], outputs=[output_edit ,output ,noised_img ,INP_Mask,EXP_Mask,EXP_Mask_2])
         clear_button.click(fn=fun_clear,
                            inputs=[original_image, global_points, global_point_label, selected_points, mask,mask_ref,
                                    img_draw_box, img, output, output_edit, noised_img,INP_Mask,EXP_Mask,img_ref,EXP_Mask_2],

@@ -633,7 +633,8 @@ class ClawerModels(StableDiffusionPipeline):
         return attention_probs
 
 
-    def move_and_inpaint_with_expansion_mask(self, image, mask, dx, dy,inpainter=None,mode=None,dilate_kernel_size=15,inp_prompt=None,):
+    def move_and_inpaint_with_expansion_mask(self, image, mask, dx, dy,inpainter=None,mode=None,dilate_kernel_size=15,inp_prompt=None,
+                                             resize_scale=None,rotation_angle=None):
 
         if isinstance(image, Image.Image):
             image = np.array(image)
@@ -656,15 +657,55 @@ class ClawerModels(StableDiffusionPipeline):
         # 计算移动后的新坐标，确保不会超出边界
         for y in range(height):
             for x in range(width):
-                # new_x = (x + dx) % width
-                # new_y = (y + dy) % height
-                new_x = (x + dx)
-                new_y = (y + dy)
+                new_x = x + dx
+                new_y = y + dy
 
-                # 使用取模操作可以选择性地允许或禁止环绕效果
+                # 确保新的坐标在图像边界内
                 if 0 <= new_x < width and 0 <= new_y < height:
                     shifted_image[new_y, new_x] = image[y, x]
                     shifted_mask[new_y, new_x] = mask[y, x]
+
+        # 提取 mask 的最小边界框
+        y_indices, x_indices = np.where(shifted_mask)
+        if len(y_indices) > 0 and len(x_indices) > 0:
+            top, bottom = np.min(y_indices), np.max(y_indices)
+            left, right = np.min(x_indices), np.max(x_indices)
+
+            mask_roi = shifted_mask[top:bottom + 1, left:right + 1]
+            image_roi = shifted_image[top:bottom + 1, left:right + 1]
+
+            # 计算 mask 区域的中心
+            mask_center_x, mask_center_y = (right + left) / 2, (top + bottom) / 2
+
+            # 旋转
+            if rotation_angle is not None:
+                center = (mask_center_x - left, mask_center_y - top)
+                rotation_matrix = cv2.getRotationMatrix2D(center, -rotation_angle, 1.0)
+                mask_roi = cv2.warpAffine(mask_roi.astype(np.uint8), rotation_matrix,
+                                          (right - left + 1, bottom - top + 1), flags=cv2.INTER_NEAREST)
+                image_roi = cv2.warpAffine(image_roi, rotation_matrix, (right - left + 1, bottom - top + 1),
+                                           flags=cv2.INTER_LINEAR)
+
+            # 缩放
+            if resize_scale is not None:
+                new_height = int(mask_roi.shape[0] * resize_scale)
+                new_width = int(mask_roi.shape[1] * resize_scale)
+                mask_roi = cv2.resize(mask_roi.astype(np.uint8), (new_width, new_height),
+                                      interpolation=cv2.INTER_NEAREST)
+                image_roi = cv2.resize(image_roi, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+
+            # 确定新的边界框
+            new_height, new_width = mask_roi.shape
+            new_top = max(0, int(mask_center_y - new_height / 2))
+            new_bottom = min(height, new_top + new_height)
+            new_left = max(0, int(mask_center_x - new_width / 2))
+            new_right = min(width, new_left + new_width)
+
+            # 将变换后的区域放回原始图像和掩码
+            shifted_image[new_top:new_bottom, new_left:new_right] = image_roi[:new_bottom - new_top,
+                                                                    :new_right - new_left]
+            shifted_mask[new_top:new_bottom, new_left:new_right] = mask_roi[:new_bottom - new_top,
+                                                                   :new_right - new_left].astype(bool)
 
         # 创建一个新的图像，物体移动到新位置
         new_image = np.where(shifted_mask[:, :, None], shifted_image, image)
@@ -879,7 +920,7 @@ class ClawerModels(StableDiffusionPipeline):
         return [img_preprocess], [final_im] ,[noised_img],[inpaint_mask]#iterable image for gallery
     def run_my_Baseline_full(self, original_image, mask, prompt,
                         seed, selected_points, guidance_scale, num_step, max_resolution, mode, dilate_kernel_size, start_step, mask_ref = None, eta=0, use_mask_expansion=True,
-                        standard_drawing=True,contrast_beta=1.67,exp_mask_type=0,
+                        standard_drawing=True,contrast_beta=1.67,exp_mask_type=0,resize_scale=1.0,rotation_angle=None
                         ):
         exp_mask_target = ['INV','FOR','BOTH']
         target_mask_type = exp_mask_target[int(exp_mask_type)]
@@ -941,7 +982,7 @@ class ClawerModels(StableDiffusionPipeline):
             expand_mask = mask_to_use
 
         # copy-paste-inpaint to get initial img
-        img_preprocess,inpaint_mask,shifted_mask = self.move_and_inpaint_with_expansion_mask(img, expand_mask, dx, dy,self.inpainter,mode,dilate_kernel_size,prompt,)
+        img_preprocess,inpaint_mask,shifted_mask = self.move_and_inpaint_with_expansion_mask(img, expand_mask, dx, dy,self.inpainter,mode,dilate_kernel_size,prompt,resize_scale,rotation_angle)
         img = img_preprocess
         if isinstance(img,np.ndarray):
             img = Image.fromarray(img)
