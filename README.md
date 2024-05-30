@@ -19,7 +19,7 @@
 # 🔥🔥🔥 Main Features  
 
 ### **Mask Expansion**  
-![mask-expansion](examples/mask-expansion.png)
+![mask-expansion](examples/mask-expansion-2.png)
 
 
 ### **Object Moving with box input**  
