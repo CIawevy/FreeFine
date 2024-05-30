@@ -906,14 +906,14 @@ def create_my_demo_full(runner):
                             minimum=0,
                             maximum=1000,
                             step=1,
-                            value=50,
+                            value=20,
                             interactive=True)
                         start_step = gr.Slider(
                             label="number of start step of num_step",
                             minimum=0,
                             maximum=1000,
                             step=1,
-                            value=15,
+                            value=5,
                             interactive=True)
                         mode = gr.Slider(
                             label=" inpainting mode selection 1:laMa 2:sd-inpaint",
@@ -941,7 +941,7 @@ def create_my_demo_full(runner):
                             minimum=0,
                             maximum=1,
                             step=1,
-                            value=1,
+                            value=0,
                             interactive=True)
                         max_resolution = gr.Slider(label="Resolution", value=768, minimum=428, maximum=1024, step=1)
                         dilate_kernel_size = gr.Slider(
