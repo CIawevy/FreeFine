@@ -65,6 +65,9 @@ python mask_expansion_main.py
 </p>
 [2] <a href="https://github.com/advimman/lama">LaMa: Resolution-robust Large Mask Inpainting with Fourier Convolutions</a>
 </p>
+[3] <a href="https://github.com/runwayml/stable-diffusion?tab=readme-ov-file#inpainting-with-stable-diffusion">Image Modification with Stable Diffusion</a>
+</p>
+
 
 
 
