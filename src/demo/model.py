@@ -694,7 +694,7 @@ class ClawerModels(StableDiffusionPipeline):
             new_width = int(mask_roi.shape[1] * resize_scale)
             mask_roi = cv2.resize(mask_roi.astype(np.uint8), (new_width, new_height),
                                   interpolation=cv2.INTER_NEAREST)
-            tgt_roi = cv2.resize(tgt_roi.astype(np.uint8), (new_width, new_height),
+            tgt_roi = cv2.resize(tgt_roi.astype(np.uint8),  (new_width, new_height), #TODO:self fix how?
                                   interpolation=cv2.INTER_NEAREST)
             image_roi = cv2.resize(image_roi, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
 
@@ -711,10 +711,12 @@ class ClawerModels(StableDiffusionPipeline):
             if flip_horizontal:
                 mask_roi = np.flip(mask_roi, axis=1)
                 image_roi = np.flip(image_roi, axis=1)
+                tgt_roi  = np.flip(tgt_roi,axis=1)
 
             if flip_vertical:
                 mask_roi = np.flip(mask_roi, axis=0)
                 image_roi = np.flip(image_roi, axis=0)
+                tgt_roi = np.flip(tgt_roi,axis=0)
             #     # 将变换后的区域放回原始图像和掩码
             transformed_image = np.zeros_like(image)
             transformed_mask = np.zeros_like(mask)
@@ -777,7 +779,7 @@ class ClawerModels(StableDiffusionPipeline):
         # seems like (2) is more suitable for latest inpainting models
 
         repair_mask = ((mask | transformed_mask) & ~transformed_target).astype(np.uint8) * 255  # (2)
-        repair_mask = self.dilate_mask(repair_mask, dilate_factor=dilate_kernel_size)
+        # repair_mask = self.dilate_mask(repair_mask, dilate_factor=dilate_kernel_size)
         image_with_hole = np.where(repair_mask[:, :, None], 0, new_image).astype(np.uint8)  # for visualization use
         to_inpaint_img = new_image
         # elif mode == 1:
