@@ -29,6 +29,9 @@
 
 ![CPIG-LaMa-inpaint](examples/lama-inpainting.png)
 
+### **Combined of any Geometric Editing with Casual draw**  
+
+![CPIG-LaMa-inpaint](examples/2d-geometric-editing.png)
 
 # 🔧 Dependencies and Installation
 
