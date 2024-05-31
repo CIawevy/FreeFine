@@ -632,9 +632,186 @@ class ClawerModels(StableDiffusionPipeline):
 
         return attention_probs
 
+    def move_and_inpaint_with_expansion_mask_new(self, image, mask, dx, dy, inpainter=None, mode=None,
+                                             dilate_kernel_size=15, inp_prompt=None,
+                                             resize_scale=None, rotation_angle=None,target_mask=None,flip_horizontal=False,flip_vertical=False):
+
+        if isinstance(image, Image.Image):
+            image = np.array(image)
+        if inp_prompt is None:
+            inp_prompt = ""
+        # 将掩码转换为灰度并应用阈值
+        if mask.ndim == 3 and mask.shape[2] == 3:
+            mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
+            mask = mask > 128
+
+
+        if target_mask.ndim == 3 and target_mask.shape[2] == 3:
+            target_mask = cv2.cvtColor(target_mask, cv2.COLOR_BGR2GRAY)
+            target_mask =target_mask > 128
+
+        mask = mask.astype(bool)
+        target_mask =target_mask.astype(bool)
+
+        # 获取图像尺寸
+        height, width = image.shape[:2]
+
+        # 创建移动后的图像和掩码的存储
+        shifted_image = np.zeros_like(image)
+        shifted_mask = np.zeros_like(mask)
+        shifted_tgt = np.zeros_like(target_mask)
+
+        # 计算移动后的新坐标，确保不会超出边界
+        for y in range(height):
+            for x in range(width):
+                new_x = x + dx
+                new_y = y + dy
+
+                # 确保新的坐标在图像边界内
+                if 0 <= new_x < width and 0 <= new_y < height:
+                    shifted_image[new_y, new_x] = image[y, x]
+                    shifted_mask[new_y, new_x] = mask[y, x]
+                    shifted_tgt[new_y, new_x] = target_mask[y, x]
+
+        transformed_mask  = shifted_mask
+        transformed_image = shifted_image
+        transformed_target = shifted_tgt
+        y_indices, x_indices = np.where(shifted_mask)
+        if len(y_indices) > 0 and len(x_indices) > 0:
+            top, bottom = np.min(y_indices), np.max(y_indices)
+            left, right = np.min(x_indices), np.max(x_indices)
+
+            mask_roi = shifted_mask[top:bottom + 1, left:right + 1]
+            image_roi = shifted_image[top:bottom + 1, left:right + 1]
+            tgt_roi = shifted_tgt[top:bottom + 1, left:right + 1]
+
+
+            # 计算 mask 区域的中心
+            mask_center_x, mask_center_y = (right + left) / 2, (top + bottom) / 2
+
+        if resize_scale is not None:
+            new_height = int(mask_roi.shape[0] * resize_scale)
+            new_width = int(mask_roi.shape[1] * resize_scale)
+            mask_roi = cv2.resize(mask_roi.astype(np.uint8), (new_width, new_height),
+                                  interpolation=cv2.INTER_NEAREST)
+            tgt_roi = cv2.resize(tgt_roi.astype(np.uint8), (new_width, new_height),
+                                  interpolation=cv2.INTER_NEAREST)
+            image_roi = cv2.resize(image_roi, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+
+            # 确定新的边界框
+            new_height, new_width = mask_roi.shape
+            print(f'new_h:{new_height},new_w:{new_width}')
+            new_top = max(0, int(mask_center_y - new_height / 2))
+            new_bottom = min(height, new_top + new_height)
+            new_left = max(0, int(mask_center_x - new_width / 2))
+            new_right = min(width, new_left + new_width)
+            mask_roi = mask_roi[:new_bottom - new_top, :new_right - new_left]
+            image_roi = image_roi[:new_bottom - new_top, :new_right - new_left, :]
+            tgt_roi =tgt_roi[:new_bottom - new_top, :new_right - new_left]
+            if flip_horizontal:
+                mask_roi = np.flip(mask_roi, axis=1)
+                image_roi = np.flip(image_roi, axis=1)
+
+            if flip_vertical:
+                mask_roi = np.flip(mask_roi, axis=0)
+                image_roi = np.flip(image_roi, axis=0)
+            #     # 将变换后的区域放回原始图像和掩码
+            transformed_image = np.zeros_like(image)
+            transformed_mask = np.zeros_like(mask)
+            transformed_target = np.zeros_like(target_mask)
+
+            transformed_mask[new_top:new_bottom, new_left:new_right] = mask_roi.astype(bool)
+            transformed_target[new_top:new_bottom, new_left:new_right] = tgt_roi.astype(bool)
+            transformed_image[transformed_mask[:, :, None].repeat(3, axis=2)] = image_roi[
+                mask_roi[:, :, None].repeat(3, axis=2).astype(bool)]
+
+        if rotation_angle is not None:
+            # 计算旋转后需要的padding尺寸
+            print(f'before padding shape:{mask_roi.shape}')
+
+            diag_length = int(np.ceil(np.sqrt((new_right - new_left + 1) ** 2 + (new_bottom - new_top + 1) ** 2)))
+            pad_w = (diag_length - (new_right - new_left + 1)) // 2
+            pad_h = (diag_length - (new_bottom - new_top + 1)) // 2
+            print(f'l{diag_length},w{pad_w},h{pad_h}')
+            # 对掩码和图像区域进行填充
+            mask_roi_padded = np.pad(mask_roi, ((pad_h, pad_h), (pad_w, pad_w)), mode='constant',
+                                     constant_values=0)
+            tgt_roi_padded = np.pad(tgt_roi, ((pad_h, pad_h), (pad_w, pad_w)), mode='constant',
+                                    constant_values=0)
+            print(f'after padding shape:{mask_roi_padded.shape}')
+            image_roi_padded = np.pad(image_roi, ((pad_h, pad_h), (pad_w, pad_w), (0, 0)), mode='constant',
+                                      constant_values=255)
+
+
+            rotation_matrix = cv2.getRotationMatrix2D((diag_length // 2, diag_length // 2), -rotation_angle, 1.0)
+            rotated_mask_roi = cv2.warpAffine(mask_roi_padded.astype(np.uint8), rotation_matrix,
+                                              (diag_length, diag_length), flags=cv2.INTER_NEAREST)
+            rotated_tgt_roi = cv2.warpAffine(tgt_roi_padded.astype(np.uint8), rotation_matrix,
+                                              (diag_length, diag_length), flags=cv2.INTER_NEAREST)
+            rotated_image_roi = cv2.warpAffine(image_roi_padded, rotation_matrix, (diag_length, diag_length),
+                                               flags=cv2.INTER_LINEAR)
+
+            # 计算旋转后新边界框的顶点
+            new_top = max(0, new_top - pad_h)
+            new_bottom = min(height, new_bottom + pad_h)
+            new_left = max(0, new_left - pad_w)
+            new_right = min(width, new_right + pad_w)
+            print(f't:{new_top},b{new_bottom},l:{new_left},r:{new_right}')
+            print(f'rotated_mask_roi:{rotated_mask_roi[:new_bottom - new_top, :new_right - new_left].shape}')
+            print(f'transform_mask_match:{transformed_mask[new_top:new_bottom, new_left:new_right].shape}')
+        rotated_image_roi = rotated_image_roi[:new_bottom - new_top, :new_right - new_left, :]
+        rotated_mask_roi = rotated_mask_roi[:new_bottom - new_top, :new_right - new_left]
+        rotated_tgt_roi = rotated_tgt_roi[:new_bottom - new_top, :new_right - new_left]
+        # 更新变换后的图像和掩码
+        transformed_mask[new_top:new_bottom, new_left:new_right] = rotated_mask_roi.astype(bool)
+        transformed_target[new_top:new_bottom, new_left:new_right] = rotated_tgt_roi.astype(bool)
+        transformed_image[transformed_mask[:, :, None].repeat(3, axis=2)] = rotated_image_roi[
+            rotated_mask_roi[:, :, None].repeat(3, axis=2).astype(bool)]
+
+        # 创建一个新的图像，物体移动到新位置
+        new_image = np.where(transformed_mask[:, :, None], transformed_image, image)
+
+        # how to define inpaint mask and image
+        # (1) original image + original mask
+        # (2) new_moved_image + original mask - (original mask & shifted mask)
+        # seems like (2) is more suitable for latest inpainting models
+
+        repair_mask = ((mask | transformed_mask) & ~transformed_target).astype(np.uint8) * 255  # (2)
+        repair_mask = self.dilate_mask(repair_mask, dilate_factor=dilate_kernel_size)
+        image_with_hole = np.where(repair_mask[:, :, None], 0, new_image).astype(np.uint8)  # for visualization use
+        to_inpaint_img = new_image
+        # elif mode == 1:
+        #     repair_mask = (mask.astype(np.uint8) * 255)  #(1)
+        #     repair_mask = self.dilate_mask(repair_mask, dilate_factor=dilate_kernel_size)
+        #     image_with_hole = np.where(repair_mask[:, :, None], 0, image).astype(np.uint8)  # for visualization use
+        #     to_inpaint_img = image
+        if mode == 1:
+            # lama inpainting
+            to_inpaint_img = Image.fromarray(to_inpaint_img)
+            repair_mask = Image.fromarray(repair_mask)
+            inpainted_image = inpainter(to_inpaint_img, repair_mask)
+        elif mode == 2:
+            # sd inpainting
+            to_inpaint_img = Image.fromarray(to_inpaint_img)
+            repair_mask = Image.fromarray(repair_mask)
+            # print(f'img:{to_inpaint_img.size}')
+            # print(f'msk:{repair_mask.size}')
+            inpainted_image = self.sd_inpainter(prompt=inp_prompt, image=to_inpaint_img, mask_image=repair_mask).images[
+                0]
+
+        if inpainted_image.size != to_inpaint_img.size:
+            print(f'inpainted image {inpainted_image.size} -> original size {to_inpaint_img.size}')
+            inpainted_image = inpainted_image.resize(to_inpaint_img.size)
+
+        # if mode==1:
+        #     final_image = np.where(shifted_mask[:, :, None], new_image, inpainted_image)
+        # elif mode==2:
+        final_image = inpainted_image
+
+        return final_image, image_with_hole, transformed_mask
 
     def move_and_inpaint_with_expansion_mask(self, image, mask, dx, dy,inpainter=None,mode=None,dilate_kernel_size=15,inp_prompt=None,
-                                             resize_scale=None,rotation_angle=None):
+                                             resize_scale=None,rotation_angle=None,flip_horizontal=False, flip_vertical=False):
 
         if isinstance(image, Image.Image):
             image = np.array(image)
@@ -665,7 +842,8 @@ class ClawerModels(StableDiffusionPipeline):
                     shifted_image[new_y, new_x] = image[y, x]
                     shifted_mask[new_y, new_x] = mask[y, x]
 
-
+        transformed_mask  = shifted_mask
+        transformed_image = shifted_image
         y_indices, x_indices = np.where(shifted_mask)
         if len(y_indices) > 0 and len(x_indices) > 0:
             top, bottom = np.min(y_indices), np.max(y_indices)
@@ -678,41 +856,12 @@ class ClawerModels(StableDiffusionPipeline):
             # 计算 mask 区域的中心
             mask_center_x, mask_center_y = (right + left) / 2, (top + bottom) / 2
 
-            # 旋转
-            # if rotation_angle is not None:
-            #     center = (mask_center_x - left, mask_center_y - top)
-            #     rotation_matrix = cv2.getRotationMatrix2D(center, -rotation_angle, 1.0)
-            #     self.view(mask_roi,name='before')
-            #     mask_roi = cv2.warpAffine(mask_roi.astype(np.uint8), rotation_matrix,
-            #                               (right - left + 1, bottom - top + 1), flags=cv2.INTER_NEAREST)
-            #     print(f'mask_roi.shape after rotate:{mask_roi.shape}')
-            #     self.view(mask_roi,name='after')
-            #     image_roi = cv2.warpAffine(image_roi, rotation_matrix, (right - left + 1, bottom - top + 1),
-            #                                flags=cv2.INTER_LINEAR)
-            if rotation_angle is not None:
-                # 计算旋转后需要的padding尺寸
-                diag_length = int(np.sqrt((right - left + 1) ** 2 + (bottom - top + 1) ** 2))
-                padding = (diag_length - (right - left + 1)) // 2
-
-                # 对掩码和图像区域进行填充
-                mask_roi = np.pad(mask_roi, ((padding, padding), (padding, padding)), mode='constant',
-                                  constant_values=0)
-                image_roi = np.pad(image_roi, ((padding, padding), (padding, padding), (0, 0)), mode='constant',
-                                   constant_values=0)
-
-                rotation_matrix = cv2.getRotationMatrix2D((diag_length // 2, diag_length // 2), -rotation_angle, 1.0)
-                mask_roi = cv2.warpAffine(mask_roi.astype(np.uint8), rotation_matrix, (diag_length, diag_length),
-                                          flags=cv2.INTER_NEAREST)
-                image_roi = cv2.warpAffine(image_roi, rotation_matrix, (diag_length, diag_length),
-                                           flags=cv2.INTER_LINEAR)
-
-            # 缩放
-            if resize_scale is not None:
-                new_height = int(mask_roi.shape[0] * resize_scale)
-                new_width = int(mask_roi.shape[1] * resize_scale)
-                mask_roi = cv2.resize(mask_roi.astype(np.uint8), (new_width, new_height),
-                                      interpolation=cv2.INTER_NEAREST)
-                image_roi = cv2.resize(image_roi, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+        if resize_scale is not None:
+            new_height = int(mask_roi.shape[0] * resize_scale)
+            new_width = int(mask_roi.shape[1] * resize_scale)
+            mask_roi = cv2.resize(mask_roi.astype(np.uint8), (new_width, new_height),
+                                  interpolation=cv2.INTER_NEAREST)
+            image_roi = cv2.resize(image_roi, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
 
 
             # 确定新的边界框
@@ -722,14 +871,55 @@ class ClawerModels(StableDiffusionPipeline):
             new_bottom = min(height, new_top + new_height)
             new_left = max(0, int(mask_center_x - new_width / 2))
             new_right = min(width, new_left + new_width)
+            mask_roi = mask_roi[:new_bottom-new_top,:new_right-new_left]
+            image_roi = image_roi[:new_bottom-new_top,:new_right-new_left,:]
+            if flip_horizontal:
+                mask_roi = np.flip(mask_roi, axis=1)
+                image_roi = np.flip(image_roi, axis=1)
 
-            # 将变换后的区域放回原始图像和掩码
+            if flip_vertical:
+                mask_roi = np.flip(mask_roi, axis=0)
+                image_roi = np.flip(image_roi, axis=0)
+        #     # 将变换后的区域放回原始图像和掩码
             transformed_image = np.zeros_like(image)
             transformed_mask = np.zeros_like(mask)
-            transformed_mask[new_top:new_bottom, new_left:new_right] = mask_roi[:new_bottom - new_top,
-                                                                       :new_right - new_left].astype(bool)
+            transformed_mask[new_top:new_bottom, new_left:new_right] = mask_roi.astype(bool)
             transformed_image[transformed_mask[:,:,None].repeat(3,axis=2)] = image_roi[mask_roi[:,:,None].repeat(3,axis=2).astype(bool)]
+        if rotation_angle is not None:
+            # 计算旋转后需要的padding尺寸
+            print(f'before padding shape:{mask_roi.shape}')
 
+            diag_length = int(np.ceil(np.sqrt((new_right - new_left + 1) ** 2 + (new_bottom - new_top + 1) ** 2)))
+            pad_w = (diag_length - (new_right - new_left + 1)) // 2
+            pad_h = (diag_length - (new_bottom - new_top + 1)) // 2
+            print(f'l{diag_length},w{pad_w},h{pad_h}')
+            # 对掩码和图像区域进行填充
+            mask_roi_padded = np.pad(mask_roi, ((pad_h, pad_h), (pad_w, pad_w)), mode='constant',
+                                     constant_values=0)
+            print(f'after padding shape:{mask_roi_padded.shape}')
+            image_roi_padded = np.pad(image_roi,  ((pad_h, pad_h), (pad_w, pad_w),(0, 0)), mode='constant',
+                                      constant_values=255)
+
+            rotation_matrix = cv2.getRotationMatrix2D((diag_length // 2, diag_length // 2), -rotation_angle, 1.0)
+            rotated_mask_roi = cv2.warpAffine(mask_roi_padded.astype(np.uint8), rotation_matrix,
+                                              (diag_length, diag_length), flags=cv2.INTER_NEAREST)
+            rotated_image_roi = cv2.warpAffine(image_roi_padded, rotation_matrix, (diag_length, diag_length),
+                                               flags=cv2.INTER_LINEAR)
+
+            # 计算旋转后新边界框的顶点
+            new_top = max(0, new_top - pad_h)
+            new_bottom = min(height, new_bottom + pad_h)
+            new_left = max(0, new_left - pad_w)
+            new_right = min(width, new_right + pad_w)
+            print(f't:{new_top},b{new_bottom},l:{new_left},r:{new_right}')
+            print(f'rotated_mask_roi:{rotated_mask_roi[:new_bottom-new_top,:new_right-new_left].shape}')
+            print(f'transform_mask_match:{transformed_mask[new_top:new_bottom, new_left:new_right].shape}')
+        rotated_image_roi = rotated_image_roi[:new_bottom-new_top,:new_right-new_left,:]
+        rotated_mask_roi = rotated_mask_roi[:new_bottom-new_top,:new_right-new_left]
+        # 更新变换后的图像和掩码
+        transformed_mask[new_top:new_bottom, new_left:new_right] = rotated_mask_roi.astype(bool)
+        transformed_image[transformed_mask[:, :, None].repeat(3, axis=2)] = rotated_image_roi[
+            rotated_mask_roi[:, :, None].repeat(3, axis=2).astype(bool)]
 
         # 创建一个新的图像，物体移动到新位置
         new_image = np.where(transformed_mask[:, :, None], transformed_image, image)
@@ -942,9 +1132,9 @@ class ClawerModels(StableDiffusionPipeline):
 
 
         return [img_preprocess], [final_im] ,[noised_img],[inpaint_mask]#iterable image for gallery
-    def run_my_Baseline_full(self, original_image, mask, prompt,
+    def run_my_Baseline_full(self, original_image, mask, prompt,INP_prompt,
                         seed, selected_points, guidance_scale, num_step, max_resolution, mode, dilate_kernel_size, start_step, mask_ref = None, eta=0, use_mask_expansion=True,
-                        standard_drawing=True,contrast_beta=1.67,exp_mask_type=0,resize_scale=1.0,rotation_angle=None
+                        standard_drawing=True,contrast_beta=1.67,exp_mask_type=0,resize_scale=1.0,rotation_angle=None,strong_inpaint=False,flip_horizontal=False, flip_vertical=False
                         ):
         exp_mask_target = ['INV','FOR','BOTH']
         target_mask_type = exp_mask_target[int(exp_mask_type)]
@@ -977,6 +1167,8 @@ class ClawerModels(StableDiffusionPipeline):
             mask_to_use = mask_ref
             if len(mask_ref) > 1:
                 mask_to_use, _ = resize_numpy_image(mask_to_use, max_resolution * max_resolution)
+                if strong_inpaint:
+                    target_mask, _ = resize_numpy_image(mask, max_resolution * max_resolution)
 
         #get move
         x = []
@@ -1006,7 +1198,10 @@ class ClawerModels(StableDiffusionPipeline):
             expand_mask = mask_to_use
 
         # copy-paste-inpaint to get initial img
-        img_preprocess,inpaint_mask,shifted_mask = self.move_and_inpaint_with_expansion_mask(img, expand_mask, dx, dy,self.inpainter,mode,dilate_kernel_size,prompt,resize_scale,rotation_angle)
+        if strong_inpaint:
+            img_preprocess, inpaint_mask, shifted_mask = self.move_and_inpaint_with_expansion_mask_new(img, expand_mask, dx, dy, self.inpainter,mode,dilate_kernel_size,INP_prompt, resize_scale,rotation_angle,target_mask,flip_horizontal,flip_vertical)
+        else:
+            img_preprocess,inpaint_mask,shifted_mask = self.move_and_inpaint_with_expansion_mask(img, expand_mask, dx, dy,self.inpainter,mode,dilate_kernel_size,INP_prompt,resize_scale,rotation_angle,flip_horizontal,flip_vertical)
         img = img_preprocess
         if isinstance(img,np.ndarray):
             img = Image.fromarray(img)

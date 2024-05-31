@@ -3,6 +3,56 @@ import numpy as np
 from src.demo.utils import get_point, store_img, get_point_move, store_img_move, clear_points, upload_image_move, segment_with_points, segment_with_points_paste, fun_clear, paste_with_mask_and_offset,draw_inpaint_area
 
 
+
+# MyExamples
+examples_CPIG_FULL = [
+    [
+        "examples/move/001.png",
+        "examples/move/001.png",
+        "examples/move/001.png",
+        'a photo of a cup',
+        'photograph of a beautiful empty scene，highest quality settings',
+    ],
+    [
+        "examples/move/002.png",
+        "examples/move/002.png",
+        "examples/move/002.png",
+        'a photo of apples',
+        'photograph of a beautiful empty scene，highest quality settings',
+    ],
+    [
+        "examples/move/003.png",
+        "examples/move/003.png",
+        "examples/move/003.png",
+        'a photo of a table',
+        'photograph of a beautiful empty scene，highest quality settings',
+    ],
+    [
+        "examples/move/004.png",
+        "examples/move/004.png",
+        "examples/move/004.png",
+        'Astronauts play football on the moon',
+        'photograph of a beautiful empty scene，highest quality settings',
+    ],
+    [
+        "examples/move/005.png",
+        "examples/move/005.png",
+        "examples/move/005.png",
+        'sun',
+        'photograph of a beautiful empty scene，highest quality settings',
+    ],
+    ["examples/appearance/004_base.jpg",
+     "examples/appearance/004_base.jpg",
+     "examples/appearance/004_base.jpg",
+     'car',
+     'photograph of a beautiful empty scene，highest quality settings',],
+    [
+        "examples/drag/003.png",
+        "examples/drag/003.png",
+        "examples/drag/003.png",
+        'oil painting',
+        'photograph of a beautiful empty scene，highest quality settings',],
+]
 # MyExamples
 examples_CPIG = [
     [
@@ -882,6 +932,9 @@ def create_my_demo_full(runner):
                     gr.Markdown("## 4. Prompt")
                     prompt = gr.Textbox(label="Prompt")
 
+                    gr.Markdown("## 5.Inpaint Prompt")
+                    INP_prompt = gr.Textbox(label="INP_Prompt")
+
                     with gr.Row():
                         run_button = gr.Button("Edit")
                         clear_button = gr.Button("Clear")
@@ -913,7 +966,7 @@ def create_my_demo_full(runner):
                             minimum=0,
                             maximum=1000,
                             step=1,
-                            value=5,
+                            value=10,
                             interactive=True)
                         mode = gr.Slider(
                             label=" inpainting mode selection 1:laMa 2:sd-inpaint",
@@ -933,6 +986,13 @@ def create_my_demo_full(runner):
                             label="exp_mask_type-0:INV 1:FOR 2:BOTH",
                             minimum=0,
                             maximum=2,
+                            step=1,
+                            value=2,
+                            interactive=True)
+                        strong_inpaint = gr.Slider(
+                            label="Refine inpainting ,utilize double input 0:False 1:True",
+                            minimum=0,
+                            maximum=1,
                             step=1,
                             value=0,
                             interactive=True)
@@ -972,6 +1032,20 @@ def create_my_demo_full(runner):
                                 minimum=-180,
                                 maximum=180,
                                 step=10,
+                                value=0,
+                                interactive=True)
+                            flip_horizontal= gr.Slider(
+                                label="flip_horizontal",
+                                minimum=0,
+                                maximum=1,
+                                step=1,
+                                value=0,
+                                interactive=True)
+                            flip_vertical = gr.Slider(
+                                label="flip_horizontal",
+                                minimum=0,
+                                maximum=1,
+                                step=1,
                                 value=0,
                                 interactive=True)
 
@@ -1021,8 +1095,8 @@ def create_my_demo_full(runner):
         with gr.Column():
             gr.Markdown("Try some of the examples below ⬇️")
             gr.Examples(
-                examples=examples_CPIG,
-                inputs=[img_draw_box,img_ref, prompt]
+                examples=examples_CPIG_FULL,
+                inputs=[img_draw_box,img_ref,img,prompt,INP_prompt]
             )
 
         # run_button.click(fn=runner,
@@ -1031,8 +1105,8 @@ def create_my_demo_full(runner):
         #                          SDE_strength, ip_scale], outputs=[output])
 
         run_button.click(fn=runner,
-                         inputs=[original_image, mask, prompt,  seed, selected_points, guidance_scale, num_step, max_resolution,mode,dilate_kernel_size,
-                                 start_step,mask_ref,eta,use_mask_expansion,standard_drawing,contrast_beta,exp_mask_type,resize_scale,rotation_angle], outputs=[output_edit ,output ,noised_img ,INP_Mask,EXP_Mask,EXP_Mask_2])
+                         inputs=[original_image, mask, prompt, INP_prompt, seed, selected_points, guidance_scale, num_step, max_resolution,mode,dilate_kernel_size,
+                                 start_step,mask_ref,eta,use_mask_expansion,standard_drawing,contrast_beta,exp_mask_type,resize_scale,rotation_angle,strong_inpaint,flip_horizontal,flip_vertical], outputs=[output_edit ,output ,noised_img ,INP_Mask,EXP_Mask,EXP_Mask_2])
         clear_button.click(fn=fun_clear,
                            inputs=[original_image, global_points, global_point_label, selected_points, mask,mask_ref,
                                    img_draw_box, img, output, output_edit, noised_img,INP_Mask,EXP_Mask,img_ref,EXP_Mask_2],

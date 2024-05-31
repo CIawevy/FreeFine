@@ -1,7 +1,7 @@
 from src.demo.download import download_all
 # download_all()
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="7"
+os.environ["CUDA_VISIBLE_DEVICES"]="4"
 from simple_lama_inpainting import SimpleLama
 from src.demo.demo import create_my_demo,create_my_demo_full
 from src.demo.model import ClawerModels
@@ -54,8 +54,8 @@ DESCRIPTION += f'<p>Gradio demo for [DragonDiffusion](https://arxiv.org/abs/2307
 with gr.Blocks(css='style.css') as demo:
     gr.Markdown(DESCRIPTION)
     with gr.Tabs():
-        with gr.TabItem('Simple Copy-Paste & Inpainting'):
-            create_my_demo(model.run_my_Baseline)
+        # with gr.TabItem('Simple Copy-Paste & Inpainting'):
+            # create_my_demo(model.run_my_Baseline)
         with gr.TabItem('Expansion Mask geometric editing'):
             create_my_demo_full(model.run_my_Baseline_full)
 
