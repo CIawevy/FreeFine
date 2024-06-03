@@ -935,6 +935,8 @@ def create_my_demo_full(runner):
                     gr.Markdown("## 5.Inpaint Prompt")
                     INP_prompt = gr.Textbox(label="INP_Prompt")
 
+
+
                     with gr.Row():
                         run_button = gr.Button("Edit")
                         clear_button = gr.Button("Clear")
@@ -945,28 +947,28 @@ def create_my_demo_full(runner):
                             minimum=0,
                             maximum=100,
                             step=0.2,
-                            value=3.5,
+                            value=5,
                             interactive=True)
                         eta= gr.Slider(
                             label="eta setting in DDIM denoising process 0:DDIM 1:DDPM",
                             minimum=0,
                             maximum=1,
                             step=0.1,
-                            value=1,
+                            value=0.5,
                             interactive=True)
                         num_step = gr.Slider(
                             label="number of diffusion steps",
                             minimum=0,
                             maximum=1000,
                             step=1,
-                            value=20,
+                            value=10,
                             interactive=True)
                         start_step = gr.Slider(
                             label="number of start step of num_step",
                             minimum=0,
                             maximum=1000,
                             step=1,
-                            value=10,
+                            value=5,
                             interactive=True)
                         mode = gr.Slider(
                             label=" inpainting mode selection 1:laMa 2:sd-inpaint",
@@ -987,14 +989,14 @@ def create_my_demo_full(runner):
                             minimum=0,
                             maximum=2,
                             step=1,
-                            value=2,
+                            value=1,
                             interactive=True)
                         strong_inpaint = gr.Slider(
                             label="Refine inpainting ,utilize double input 0:False 1:True",
                             minimum=0,
                             maximum=1,
                             step=1,
-                            value=0,
+                            value=1,
                             interactive=True)
                         standard_drawing = gr.Slider(
                             label="select the box draw or casual draw to upload mask 0:casual draw 1:standard box draw",
@@ -1075,6 +1077,9 @@ def create_my_demo_full(runner):
                     gr.Markdown("<h5><center>ExpansionMask_2</center></h5>")
                     EXP_Mask_2 = gr.Gallery().style(grid=1, height='auto')
 
+                    gr.Markdown("<h5><center>Retain_Region</center></h5>")
+                    retain_region = gr.Gallery().style(grid=1, height='auto')
+
                     # im_w_mask_ref = gr.Image(label="Mask of inpaint region", interactive=True, type="numpy")
 
             img.select(
@@ -1106,10 +1111,10 @@ def create_my_demo_full(runner):
 
         run_button.click(fn=runner,
                          inputs=[original_image, mask, prompt, INP_prompt, seed, selected_points, guidance_scale, num_step, max_resolution,mode,dilate_kernel_size,
-                                 start_step,mask_ref,eta,use_mask_expansion,standard_drawing,contrast_beta,exp_mask_type,resize_scale,rotation_angle,strong_inpaint,flip_horizontal,flip_vertical], outputs=[output_edit ,output ,noised_img ,INP_Mask,EXP_Mask,EXP_Mask_2])
+                                 start_step,mask_ref,eta,use_mask_expansion,standard_drawing,contrast_beta,exp_mask_type,resize_scale,rotation_angle,strong_inpaint,flip_horizontal,flip_vertical], outputs=[output_edit ,output ,noised_img ,INP_Mask,EXP_Mask,EXP_Mask_2,retain_region])
         clear_button.click(fn=fun_clear,
                            inputs=[original_image, global_points, global_point_label, selected_points, mask,mask_ref,
-                                   img_draw_box, img, output, output_edit, noised_img,INP_Mask,EXP_Mask,img_ref,EXP_Mask_2],
+                                   img_draw_box, img, output, output_edit, noised_img,INP_Mask,EXP_Mask,img_ref,EXP_Mask_2,retain_region],
                            outputs=[original_image, global_points, global_point_label, selected_points, mask,mask_ref,
-                                    img_draw_box, img, output, output_edit , noised_img,INP_Mask, EXP_Mask,img_ref,EXP_Mask_2 ])
+                                    img_draw_box, img, output, output_edit , noised_img,INP_Mask, EXP_Mask,img_ref,EXP_Mask_2,retain_region ])
     return demo

@@ -1,7 +1,7 @@
 from src.demo.download import download_all
 # download_all()
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="4"
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
 from simple_lama_inpainting import SimpleLama
 from src.demo.demo import create_my_demo,create_my_demo_full
 from src.demo.model import ClawerModels
@@ -19,12 +19,15 @@ device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('
 # print(torch.cuda.get_device_name(0))
 
 
-pretrained_inpaint_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-inpainting/"
+# pretrained_inpaint_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-inpainting/"
+pretrained_inpaint_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-2-inpainting/"
 sd_inpainter = StableDiffusionInpaintPipeline.from_pretrained(
     pretrained_inpaint_model_path,
     revision="fp16",
     torch_dtype=torch.float16,
 ).to(device)
+sd_inpainter.enable_attention_slicing()
+
 
 
 pretrained_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-v1-5/"
@@ -46,7 +49,8 @@ controller.contrast_beta = 1.67
 controller.use_contrast = True
 model.controller = controller
 register_attention_control(model, controller)
-
+model.enable_attention_slicing()
+model.enable_xformers_memory_efficient_attention()
 DESCRIPTION = '# 🐉🐉[DragonDiffusion V1.0](https://github.com/MC-E/DragonDiffusion)🐉🐉'
 
 DESCRIPTION += f'<p>Gradio demo for [DragonDiffusion](https://arxiv.org/abs/2307.02421) and [DiffEditor](https://arxiv.org/abs/2307.02421). If it is helpful, please help to recommend [[GitHub Repo]](https://github.com/MC-E/DragonDiffusion) to your friends 😊 </p>'

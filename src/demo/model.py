@@ -634,7 +634,7 @@ class ClawerModels(StableDiffusionPipeline):
 
     def move_and_inpaint_with_expansion_mask_new(self, image, mask, dx, dy, inpainter=None, mode=None,
                                              dilate_kernel_size=15, inp_prompt=None,
-                                             resize_scale=None, rotation_angle=None,target_mask=None,flip_horizontal=False,flip_vertical=False):
+                                             resize_scale=1.0, rotation_angle=0,target_mask=None,flip_horizontal=False,flip_vertical=False):
 
         if isinstance(image, Image.Image):
             image = np.array(image)
@@ -656,129 +656,47 @@ class ClawerModels(StableDiffusionPipeline):
         # 获取图像尺寸
         height, width = image.shape[:2]
 
-        # 创建移动后的图像和掩码的存储
-        shifted_image = np.zeros_like(image)
-        shifted_mask = np.zeros_like(mask)
-        shifted_tgt = np.zeros_like(target_mask)
 
-        # 计算移动后的新坐标，确保不会超出边界
-        for y in range(height):
-            for x in range(width):
-                new_x = x + dx
-                new_y = y + dy
-
-                # 确保新的坐标在图像边界内
-                if 0 <= new_x < width and 0 <= new_y < height:
-                    shifted_image[new_y, new_x] = image[y, x]
-                    shifted_mask[new_y, new_x] = mask[y, x]
-                    shifted_tgt[new_y, new_x] = target_mask[y, x]
-
-        transformed_mask  = shifted_mask
-        transformed_image = shifted_image
-        transformed_target = shifted_tgt
-        y_indices, x_indices = np.where(shifted_mask)
+        y_indices, x_indices = np.where(mask)
         if len(y_indices) > 0 and len(x_indices) > 0:
             top, bottom = np.min(y_indices), np.max(y_indices)
             left, right = np.min(x_indices), np.max(x_indices)
-
-            mask_roi = shifted_mask[top:bottom + 1, left:right + 1]
-            image_roi = shifted_image[top:bottom + 1, left:right + 1]
-            tgt_roi = shifted_tgt[top:bottom + 1, left:right + 1]
-
-
-            # 计算 mask 区域的中心
+            # mask_roi = mask[top:bottom + 1, left:right + 1]
+            # image_roi = image[top:bottom + 1, left:right + 1]
             mask_center_x, mask_center_y = (right + left) / 2, (top + bottom) / 2
 
-        if resize_scale is not None:
-            new_height = int(mask_roi.shape[0] * resize_scale)
-            new_width = int(mask_roi.shape[1] * resize_scale)
-            mask_roi = cv2.resize(mask_roi.astype(np.uint8), (new_width, new_height),
-                                  interpolation=cv2.INTER_NEAREST)
-            tgt_roi = cv2.resize(tgt_roi.astype(np.uint8),  (new_width, new_height), #TODO:self fix how?
-                                  interpolation=cv2.INTER_NEAREST)
-            image_roi = cv2.resize(image_roi, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
 
-            # 确定新的边界框
-            new_height, new_width = mask_roi.shape
-            print(f'new_h:{new_height},new_w:{new_width}')
-            new_top = max(0, int(mask_center_y - new_height / 2))
-            new_bottom = min(height, new_top + new_height)
-            new_left = max(0, int(mask_center_x - new_width / 2))
-            new_right = min(width, new_left + new_width)
-            mask_roi = mask_roi[:new_bottom - new_top, :new_right - new_left]
-            image_roi = image_roi[:new_bottom - new_top, :new_right - new_left, :]
-            tgt_roi =tgt_roi[:new_bottom - new_top, :new_right - new_left]
-            if flip_horizontal:
-                mask_roi = np.flip(mask_roi, axis=1)
-                image_roi = np.flip(image_roi, axis=1)
-                tgt_roi  = np.flip(tgt_roi,axis=1)
+        rotation_matrix = cv2.getRotationMatrix2D((mask_center_x, mask_center_x), -rotation_angle, resize_scale)
+        rotation_matrix[0, 2] += dx
+        rotation_matrix[1, 2] += dy
 
-            if flip_vertical:
-                mask_roi = np.flip(mask_roi, axis=0)
-                image_roi = np.flip(image_roi, axis=0)
-                tgt_roi = np.flip(tgt_roi,axis=0)
-            #     # 将变换后的区域放回原始图像和掩码
-            transformed_image = np.zeros_like(image)
-            transformed_mask = np.zeros_like(mask)
-            transformed_target = np.zeros_like(target_mask)
+        transformed_image = cv2.warpAffine(image, rotation_matrix, (width, height))
+        transformed_mask = cv2.warpAffine(mask.astype(np.uint8), rotation_matrix, (width, height),
+                                          flags=cv2.INTER_NEAREST).astype(bool)
+        transformed_target = cv2.warpAffine(target_mask.astype(np.uint8), rotation_matrix, (width, height),).astype(bool)
 
-            transformed_mask[new_top:new_bottom, new_left:new_right] = mask_roi.astype(bool)
-            transformed_target[new_top:new_bottom, new_left:new_right] = tgt_roi.astype(bool)
-            transformed_image[transformed_mask[:, :, None].repeat(3, axis=2)] = image_roi[
-                mask_roi[:, :, None].repeat(3, axis=2).astype(bool)]
+        # 检查是否需要水平翻转
+        if flip_horizontal:
+            transformed_image = cv2.flip(transformed_image, 1)
+            transformed_mask = cv2.flip(transformed_mask, 1)
+            transformed_target = cv2.flip(transformed_target, 1)
 
-        if rotation_angle is not None:
-            # 计算旋转后需要的padding尺寸
-            print(f'before padding shape:{mask_roi.shape}')
-
-            diag_length = int(np.ceil(np.sqrt((new_right - new_left + 1) ** 2 + (new_bottom - new_top + 1) ** 2)))
-            pad_w = (diag_length - (new_right - new_left + 1)) // 2
-            pad_h = (diag_length - (new_bottom - new_top + 1)) // 2
-            print(f'l{diag_length},w{pad_w},h{pad_h}')
-            # 对掩码和图像区域进行填充
-            mask_roi_padded = np.pad(mask_roi, ((pad_h, pad_h), (pad_w, pad_w)), mode='constant',
-                                     constant_values=0)
-            tgt_roi_padded = np.pad(tgt_roi, ((pad_h, pad_h), (pad_w, pad_w)), mode='constant',
-                                    constant_values=0)
-            print(f'after padding shape:{mask_roi_padded.shape}')
-            image_roi_padded = np.pad(image_roi, ((pad_h, pad_h), (pad_w, pad_w), (0, 0)), mode='constant',
-                                      constant_values=255)
-
-
-            rotation_matrix = cv2.getRotationMatrix2D((diag_length // 2, diag_length // 2), -rotation_angle, 1.0)
-            rotated_mask_roi = cv2.warpAffine(mask_roi_padded.astype(np.uint8), rotation_matrix,
-                                              (diag_length, diag_length), flags=cv2.INTER_NEAREST)
-            rotated_tgt_roi = cv2.warpAffine(tgt_roi_padded.astype(np.uint8), rotation_matrix,
-                                              (diag_length, diag_length), flags=cv2.INTER_NEAREST)
-            rotated_image_roi = cv2.warpAffine(image_roi_padded, rotation_matrix, (diag_length, diag_length),
-                                               flags=cv2.INTER_LINEAR)
-
-            # 计算旋转后新边界框的顶点
-            new_top = max(0, new_top - pad_h)
-            new_bottom = min(height, new_bottom + pad_h)
-            new_left = max(0, new_left - pad_w)
-            new_right = min(width, new_right + pad_w)
-            print(f't:{new_top},b{new_bottom},l:{new_left},r:{new_right}')
-            print(f'rotated_mask_roi:{rotated_mask_roi[:new_bottom - new_top, :new_right - new_left].shape}')
-            print(f'transform_mask_match:{transformed_mask[new_top:new_bottom, new_left:new_right].shape}')
-        rotated_image_roi = rotated_image_roi[:new_bottom - new_top, :new_right - new_left, :]
-        rotated_mask_roi = rotated_mask_roi[:new_bottom - new_top, :new_right - new_left]
-        rotated_tgt_roi = rotated_tgt_roi[:new_bottom - new_top, :new_right - new_left]
-        # 更新变换后的图像和掩码
-        transformed_mask[new_top:new_bottom, new_left:new_right] = rotated_mask_roi.astype(bool)
-        transformed_target[new_top:new_bottom, new_left:new_right] = rotated_tgt_roi.astype(bool)
-        transformed_image[transformed_mask[:, :, None].repeat(3, axis=2)] = rotated_image_roi[
-            rotated_mask_roi[:, :, None].repeat(3, axis=2).astype(bool)]
+        # 检查是否需要垂直翻转
+        if flip_vertical:
+            transformed_image = cv2.flip(transformed_image, 0)
+            transformed_mask = cv2.flip(transformed_mask, 0)
+            transformed_target = cv2.flip(transformed_target, 0)
 
         # 创建一个新的图像，物体移动到新位置
-        new_image = np.where(transformed_mask[:, :, None], transformed_image, image)
+        new_image = np.where(transformed_mask[:, :, None], transformed_image, image) #move with expansion pixels but inpaint
+        # new_image = np.where(transformed_target[:, :, None], transformed_image, image) #only move the target w/o expansion
 
         # how to define inpaint mask and image
         # (1) original image + original mask
         # (2) new_moved_image + original mask - (original mask & shifted mask)
         # seems like (2) is more suitable for latest inpainting models
-
-        repair_mask = ((mask | transformed_mask) & ~transformed_target).astype(np.uint8) * 255  # (2)
+        repair_region = ((mask | transformed_mask) & ~transformed_target)
+        repair_mask = repair_region.astype(np.uint8) * 255  # (2)
         # repair_mask = self.dilate_mask(repair_mask, dilate_factor=dilate_kernel_size)
         image_with_hole = np.where(repair_mask[:, :, None], 0, new_image).astype(np.uint8)  # for visualization use
         to_inpaint_img = new_image
@@ -804,13 +722,20 @@ class ClawerModels(StableDiffusionPipeline):
         if inpainted_image.size != to_inpaint_img.size:
             print(f'inpainted image {inpainted_image.size} -> original size {to_inpaint_img.size}')
             inpainted_image = inpainted_image.resize(to_inpaint_img.size)
+            retain_mask = ~repair_region
+            inpainted_image = np.where(retain_mask[:, :, None], new_image, inpainted_image)
 
         # if mode==1:
         #     final_image = np.where(shifted_mask[:, :, None], new_image, inpainted_image)
         # elif mode==2:
         final_image = inpainted_image
+        #mask retain
+        retain_mask =  dict()
+        retain_mask['obj_region'] = transformed_target
+        retain_mask['ori_expansion'] = mask
 
-        return final_image, image_with_hole, transformed_mask
+
+        return final_image, image_with_hole, transformed_mask , retain_mask
 
     def move_and_inpaint_with_expansion_mask(self, image, mask, dx, dy,inpainter=None,mode=None,dilate_kernel_size=15,inp_prompt=None,
                                              resize_scale=None,rotation_angle=None,flip_horizontal=False, flip_vertical=False):
@@ -1201,17 +1126,20 @@ class ClawerModels(StableDiffusionPipeline):
 
         # copy-paste-inpaint to get initial img
         if strong_inpaint:
-            img_preprocess, inpaint_mask, shifted_mask = self.move_and_inpaint_with_expansion_mask_new(img, expand_mask, dx, dy, self.inpainter,mode,dilate_kernel_size,INP_prompt, resize_scale,rotation_angle,target_mask,flip_horizontal,flip_vertical)
+            img_preprocess, inpaint_mask, shifted_mask,retain_mask = self.move_and_inpaint_with_expansion_mask_new(img, expand_mask, dx, dy, self.inpainter,mode,dilate_kernel_size,INP_prompt, resize_scale,rotation_angle,target_mask,flip_horizontal,flip_vertical)
         else:
             img_preprocess,inpaint_mask,shifted_mask = self.move_and_inpaint_with_expansion_mask(img, expand_mask, dx, dy,self.inpainter,mode,dilate_kernel_size,INP_prompt,resize_scale,rotation_angle,flip_horizontal,flip_vertical)
+            retain_mask = None
         img = img_preprocess
         if isinstance(img,np.ndarray):
             img = Image.fromarray(img)
 
         #prepare target expansion mask
+        if retain_mask is not None:
+            shifted_mask = retain_mask['obj_region']
         shifted_mask = self.prepare_controller_ref_mask(shifted_mask)
 
-        final_im,noised_img,candidate_mask = \
+        final_im,noised_img,candidate_mask,retain_region = \
             self.DDIM_DDPM_MASK(
                 img,
                 prompt,
@@ -1221,9 +1149,10 @@ class ClawerModels(StableDiffusionPipeline):
                 guidance_scale=guidance_scale,
                 version = 0,
                 eta = eta,
-                roi_expansion=True,mask_threshold=0.1, post_process='hard',mask=shifted_mask,target_mask_type=target_mask_type
+                roi_expansion=True,mask_threshold=0.1, post_process='hard',mask=shifted_mask,target_mask_type=target_mask_type,
+                retain_mask = retain_mask, dilate_kernel_size=dilate_kernel_size,
             )
-        return [img_preprocess], [final_im] ,[noised_img],[inpaint_mask],[expand_mask],[candidate_mask]#iterable image for gallery
+        return [img_preprocess], [final_im] ,[noised_img],[inpaint_mask],[expand_mask],[candidate_mask],[retain_region]#iterable image for gallery
     def normalize_expansion_mask(self,mask,exp_mask,roi_expansion):
         if roi_expansion:
             candidate_mask = torch.ones_like(exp_mask)
@@ -1532,6 +1461,7 @@ class ClawerModels(StableDiffusionPipeline):
         average_expansion_masks = sum(step_masks) / len(step_masks)
         print(mask.shape)
         print(average_expansion_masks.shape)
+        self.view(mask,name='mask')
         norm_exp_mask = self.normalize_expansion_mask(mask, average_expansion_masks, roi_expansion, )
         if post_process is not None:
             assert post_process in ['hard', 'soft'], f'not implement method: {post_process}'
@@ -1870,7 +1800,7 @@ class ClawerModels(StableDiffusionPipeline):
         return final_im , noised_image
 
     def DDIM_DDPM_MASK(self, input_image, input_image_prompt, edit_prompt, num_steps=100, start_step=30, guidance_scale=3.5,
-             version=0, eta=0, roi_expansion=True,mask_threshold=0.1, post_process='hard',mask=None,target_mask_type='INV'):
+             version=0, eta=0, roi_expansion=True,mask_threshold=0.1, post_process='hard',mask=None,target_mask_type='FOR',retain_mask=None,dilate_kernel_size=15):
         ##input_image original PIL 512,512
         # VERSION ONE : DDIM Inversion official code in huggingface
         # VERSION TWO : DDIM inversion code in dragon utils
@@ -1882,13 +1812,13 @@ class ClawerModels(StableDiffusionPipeline):
                 inverted_latents = self.invert(l, input_image_prompt, num_inference_steps=num_steps,
                                                guidance_scale=guidance_scale, )
 
-            elif version == 1:
-                # Dragon diffusion ddim inversion code,but with bug in self.unet forward function while they use diffenrent unet
-                # bother to check ,just use official ddim inversion code with guidance
-                img_tensor = (PILToTensor()(input_image) / 255.0 - 0.5) * 2
-                img_tensor = img_tensor.to(self.device, dtype=self.precision).unsqueeze(0)
-                latent = self.image2latent(img_tensor)
-                inverted_latents = self.ddim_inv(latent=latent, prompt=input_image_prompt, ddim_num_steps=num_steps)
+            # elif version == 1:
+            #     # Dragon diffusion ddim inversion code,but with bug in self.unet forward function while they use diffenrent unet
+            #     # bother to check ,just use official ddim inversion code with guidance
+            #     img_tensor = (PILToTensor()(input_image) / 255.0 - 0.5) * 2
+            #     img_tensor = img_tensor.to(self.device, dtype=self.precision).unsqueeze(0)
+            #     latent = self.image2latent(img_tensor)
+            #     inverted_latents = self.ddim_inv(latent=latent, prompt=input_image_prompt, ddim_num_steps=num_steps)
 
             candidate_mask = None
             #get ddim inv expansion target mask
@@ -1922,8 +1852,30 @@ class ClawerModels(StableDiffusionPipeline):
             elif target_mask_type == 'BOTH':
                 candidate_mask = self.fetch_expansion_mask_from_store([ddim_inv_expansion_masks,ddpm_for_expansion_masks], mask, roi_expansion,post_process, mask_threshold)
 
+            if retain_mask is not None:
+                # blending with CPI img to retain consistent part
 
-        return final_im, noised_image,candidate_mask
+                target_expansion = (candidate_mask>128).astype(bool)
+                source_expansion = retain_mask['ori_expansion']
+                before_obj_region = retain_mask['obj_region']
+
+                retain_region_mask = ~(~(source_expansion | target_expansion) | before_obj_region)
+                # print(retain_region_mask)
+                self.view(retain_region_mask.astype(np.uint8) * 255, name="/data/Hszhu/DragonDiffusion/retain_region_mask")
+
+                #blend with dilation like BrushNet
+                retain_region = self.dilate_mask(retain_region_mask.astype(np.uint8), dilate_factor=dilate_kernel_size)[:,:,None]
+                # retain_region = retain_region_mask.astype(np.uint8)[:,:,None]
+                # print(retain_region.shape)
+
+                final_im = (1-retain_region)* input_image + retain_region * final_im
+
+                return final_im, noised_image, candidate_mask, retain_region[:,:,0] * 255
+
+
+
+
+        return final_im, noised_image, candidate_mask ,None
 
     def MY_DDIM_INV(self, input_image, input_image_prompt, num_steps=100, guidance_scale=3.5,
               eta=0):
