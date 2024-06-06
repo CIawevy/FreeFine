@@ -639,7 +639,7 @@ class ClawerModels(StableDiffusionPipeline):
         if isinstance(image, Image.Image):
             image = np.array(image)
         if inp_prompt is None:
-            inp_prompt = ""
+            inp_prompt = 'empty scene'
         # 将掩码转换为灰度并应用阈值
         if mask.ndim == 3 and mask.shape[2] == 3:
             mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
@@ -652,6 +652,7 @@ class ClawerModels(StableDiffusionPipeline):
 
         mask = mask.astype(bool)
         target_mask =target_mask.astype(bool)
+
 
         # 获取图像尺寸
         height, width = image.shape[:2]
@@ -695,14 +696,16 @@ class ClawerModels(StableDiffusionPipeline):
         # (1) original image + original mask
         # (2) new_moved_image + original mask - (original mask & shifted mask)
         # seems like (2) is more suitable for latest inpainting models
+        # inpaint_mode = 1
+        # if inpaint_mode:
         repair_region = ((mask | transformed_mask) & ~transformed_target)
         repair_mask = repair_region.astype(np.uint8) * 255  # (2)
         # repair_mask = self.dilate_mask(repair_mask, dilate_factor=dilate_kernel_size)
         image_with_hole = np.where(repair_mask[:, :, None], 0, new_image).astype(np.uint8)  # for visualization use
         to_inpaint_img = new_image
-        # elif mode == 1:
+        # else:
         #     repair_mask = (mask.astype(np.uint8) * 255)  #(1)
-        #     repair_mask = self.dilate_mask(repair_mask, dilate_factor=dilate_kernel_size)
+        #     # repair_mask = self.dilate_mask(repair_mask, dilate_factor=dilate_kernel_size) already expanision and dilation
         #     image_with_hole = np.where(repair_mask[:, :, None], 0, image).astype(np.uint8)  # for visualization use
         #     to_inpaint_img = image
         if mode == 1:
@@ -725,9 +728,9 @@ class ClawerModels(StableDiffusionPipeline):
             retain_mask = ~repair_region
             inpainted_image = np.where(retain_mask[:, :, None], new_image, inpainted_image)
 
-        # if mode==1:
-        #     final_image = np.where(shifted_mask[:, :, None], new_image, inpainted_image)
-        # elif mode==2:
+        # if inpaint_mode==0:
+        #     final_image = np.where(transformed_mask[:, :, None], new_image, inpainted_image)
+        # else:
         final_image = inpainted_image
         #mask retain
         retain_mask =  dict()
@@ -1059,9 +1062,10 @@ class ClawerModels(StableDiffusionPipeline):
 
 
         return [img_preprocess], [final_im] ,[noised_img],[inpaint_mask]#iterable image for gallery
-    def run_my_Baseline_full(self, original_image, mask, prompt,INP_prompt,
+    def run_my_Baseline_full_3D(self, original_image, mask, prompt,INP_prompt,
                         seed, selected_points, guidance_scale, num_step, max_resolution, mode, dilate_kernel_size, start_step, mask_ref = None, eta=0, use_mask_expansion=True,
-                        standard_drawing=True,contrast_beta=1.67,exp_mask_type=0,resize_scale=1.0,rotation_angle=None,strong_inpaint=False,flip_horizontal=False, flip_vertical=False
+                        standard_drawing=True,contrast_beta=1.67,exp_mask_type=0,resize_scale=1.0,rotation_angle=None,strong_inpaint=True,flip_horizontal=False, flip_vertical=False,cross_enhance=False,
+                             mask_threshold=0.1,mask_threshold_target=0.1,blending_alpha=0.5,
                         ):
         exp_mask_target = ['INV','FOR','BOTH']
         target_mask_type = exp_mask_target[int(exp_mask_type)]
@@ -1086,16 +1090,28 @@ class ClawerModels(StableDiffusionPipeline):
         img, input_scale = resize_numpy_image(img, max_resolution * max_resolution)
         print(img.shape) #768
         print(input_scale)
-        if standard_drawing:
+        if standard_drawing: #box only input
             mask_to_use = mask
             if input_scale != 1:
                 mask_to_use, _ = resize_numpy_image(mask_to_use, max_resolution * max_resolution)
+            if strong_inpaint:
+                target_mask = mask_to_use
+            mask_to_use = self.dilate_mask(mask_to_use, dilate_kernel_size) * 255 #dilate for better expansion mask
+            return_target = False
+
         else:
             mask_to_use = mask_ref
             if len(mask_ref) > 1:
                 mask_to_use, _ = resize_numpy_image(mask_to_use, max_resolution * max_resolution)
-                if strong_inpaint:
-                    target_mask, _ = resize_numpy_image(mask, max_resolution * max_resolution)
+                return_target = False
+                if strong_inpaint :
+                    if cross_enhance:#use box mask to retain
+                        target_mask, _ = resize_numpy_image(mask, max_resolution * max_resolution)
+                        target_mask = np.array(self.dilate_mask(target_mask, dilate_kernel_size) * 255)
+                    else: #use strict expansion mask to retain
+                        return_target = True
+
+
 
         #get move
         x = []
@@ -1115,21 +1131,28 @@ class ClawerModels(StableDiffusionPipeline):
         dx = int(dx * input_scale)
         dy = int(dy * input_scale)
         #mask expansion
+        if return_target:
+            self.controller.contrast_beta = contrast_beta * 100
+            target_mask = self.gradio_mask_expansion_func(img=img, mask=mask_to_use, prompt="",
+                                                          guidance_scale=guidance_scale, num_step=5,
+                                                          eta=eta, roi_expansion=True,
+                                                          mask_threshold=mask_threshold, post_process='hard',
+                                                          )  # ndarray mask
         if use_mask_expansion:
             self.controller.contrast_beta = contrast_beta
             expand_mask= self.gradio_mask_expansion_func(img=img, mask=mask_to_use, prompt="",
-                                                         guidance_scale=guidance_scale, num_step=num_step,
+                                                         guidance_scale=guidance_scale, num_step=5,
                                                          eta=eta,roi_expansion=True,
-                                                         mask_threshold=0.1,post_process='hard',) #ndarray mask
+                                                         mask_threshold=mask_threshold,post_process='hard',) #ndarray mask
         else:
             expand_mask = mask_to_use
 
         # copy-paste-inpaint to get initial img
-        if strong_inpaint:
-            img_preprocess, inpaint_mask, shifted_mask,retain_mask = self.move_and_inpaint_with_expansion_mask_new(img, expand_mask, dx, dy, self.inpainter,mode,dilate_kernel_size,INP_prompt, resize_scale,rotation_angle,target_mask,flip_horizontal,flip_vertical)
-        else:
-            img_preprocess,inpaint_mask,shifted_mask = self.move_and_inpaint_with_expansion_mask(img, expand_mask, dx, dy,self.inpainter,mode,dilate_kernel_size,INP_prompt,resize_scale,rotation_angle,flip_horizontal,flip_vertical)
-            retain_mask = None
+        # if strong_inpaint:
+        img_preprocess, inpaint_mask, shifted_mask, retain_mask = self.move_and_inpaint_with_expansion_mask_new(img, expand_mask, dx, dy, self.inpainter,mode,dilate_kernel_size,INP_prompt, resize_scale,rotation_angle,target_mask,flip_horizontal,flip_vertical)
+        # else:
+        #     img_preprocess,inpaint_mask,shifted_mask = self.move_and_inpaint_with_expansion_mask(img, expand_mask, dx, dy,self.inpainter,mode,dilate_kernel_size,INP_prompt,resize_scale,rotation_angle,flip_horizontal,flip_vertical)
+        #     retain_mask = None
         img = img_preprocess
         if isinstance(img,np.ndarray):
             img = Image.fromarray(img)
@@ -1149,8 +1172,122 @@ class ClawerModels(StableDiffusionPipeline):
                 guidance_scale=guidance_scale,
                 version = 0,
                 eta = eta,
-                roi_expansion=True,mask_threshold=0.1, post_process='hard',mask=shifted_mask,target_mask_type=target_mask_type,
-                retain_mask = retain_mask, dilate_kernel_size=dilate_kernel_size,
+                roi_expansion=True,mask_threshold=mask_threshold_target, post_process='hard',mask=shifted_mask,target_mask_type=target_mask_type,
+                retain_mask = retain_mask, dilate_kernel_size=dilate_kernel_size,blending_alpha=blending_alpha
+            )
+        return [img_preprocess], [final_im] ,[noised_img],[inpaint_mask],[expand_mask],[candidate_mask],[retain_region]#iterable image for gallery
+    def run_my_Baseline_full(self, original_image, mask, prompt,INP_prompt,
+                        seed, selected_points, guidance_scale, num_step, max_resolution, mode, dilate_kernel_size, start_step, mask_ref = None, eta=0, use_mask_expansion=True,
+                        standard_drawing=True,contrast_beta=1.67,exp_mask_type=0,resize_scale=1.0,rotation_angle=None,strong_inpaint=True,flip_horizontal=False, flip_vertical=False,cross_enhance=False,
+                             mask_threshold=0.1,mask_threshold_target=0.1,blending_alpha=0.5,
+                        ):
+        exp_mask_target = ['INV','FOR','BOTH']
+        target_mask_type = exp_mask_target[int(exp_mask_type)]
+        seed_everything(seed)
+        # energy_scale = energy_scale * 1e3
+        # get mask shifting values
+        # print(mask_ref.shape)
+        # storage=True
+        # if storage:
+        #     if isinstance(mask, np.ndarray):
+        #         mask_store = Image.fromarray(mask)
+        #     path = "/data/Hszhu/DragonDiffusion/examples/masks/"
+        #     i = 0
+        #     name =f'{i}.png'
+        #     while os.path.exists(os.path.join(path,name)):
+        #         i += 1
+        #         name = f'{i}.png'
+        #     mask_store.save(os.path.join(path,name))
+
+        #select and resize
+        img = original_image
+        img, input_scale = resize_numpy_image(img, max_resolution * max_resolution)
+        print(img.shape) #768
+        print(input_scale)
+        if standard_drawing: #box only input
+            mask_to_use = mask
+            if input_scale != 1:
+                mask_to_use, _ = resize_numpy_image(mask_to_use, max_resolution * max_resolution)
+            if strong_inpaint:
+                target_mask = mask_to_use
+            mask_to_use = self.dilate_mask(mask_to_use, dilate_kernel_size) * 255 #dilate for better expansion mask
+            return_target = False
+
+        else:
+            mask_to_use = mask_ref
+            if len(mask_ref) > 1:
+                mask_to_use, _ = resize_numpy_image(mask_to_use, max_resolution * max_resolution)
+                return_target = False
+                if strong_inpaint :
+                    if cross_enhance:#use box mask to retain
+                        target_mask, _ = resize_numpy_image(mask, max_resolution * max_resolution)
+                        target_mask = np.array(self.dilate_mask(target_mask, dilate_kernel_size) * 255)
+                    else: #use strict expansion mask to retain
+                        return_target = True
+
+
+
+        #get move
+        x = []
+        y = []
+        x_cur = []
+        y_cur = []
+        for idx, point in enumerate(selected_points):
+            if idx % 2 == 0:
+                y.append(point[1])
+                x.append(point[0])
+            else:
+                y_cur.append(point[1])
+                x_cur.append(point[0])
+        #IF ERROR is Raised , check whether you select start and end moving points
+        dx = x_cur[0] - x[0]
+        dy = y_cur[0] - y[0]
+        dx = int(dx * input_scale)
+        dy = int(dy * input_scale)
+        #mask expansion
+        if return_target:
+            self.controller.contrast_beta = contrast_beta * 100
+            target_mask = self.gradio_mask_expansion_func(img=img, mask=mask_to_use, prompt="",
+                                                          guidance_scale=guidance_scale, num_step=5,
+                                                          eta=eta, roi_expansion=True,
+                                                          mask_threshold=mask_threshold, post_process='hard',
+                                                          )  # ndarray mask
+        if use_mask_expansion:
+            self.controller.contrast_beta = contrast_beta
+            expand_mask= self.gradio_mask_expansion_func(img=img, mask=mask_to_use, prompt="",
+                                                         guidance_scale=guidance_scale, num_step=5,
+                                                         eta=eta,roi_expansion=True,
+                                                         mask_threshold=mask_threshold,post_process='hard',) #ndarray mask
+        else:
+            expand_mask = mask_to_use
+
+        # copy-paste-inpaint to get initial img
+        # if strong_inpaint:
+        img_preprocess, inpaint_mask, shifted_mask, retain_mask = self.move_and_inpaint_with_expansion_mask_new(img, expand_mask, dx, dy, self.inpainter,mode,dilate_kernel_size,INP_prompt, resize_scale,rotation_angle,target_mask,flip_horizontal,flip_vertical)
+        # else:
+        #     img_preprocess,inpaint_mask,shifted_mask = self.move_and_inpaint_with_expansion_mask(img, expand_mask, dx, dy,self.inpainter,mode,dilate_kernel_size,INP_prompt,resize_scale,rotation_angle,flip_horizontal,flip_vertical)
+        #     retain_mask = None
+        img = img_preprocess
+        if isinstance(img,np.ndarray):
+            img = Image.fromarray(img)
+
+        #prepare target expansion mask
+        if retain_mask is not None:
+            shifted_mask = retain_mask['obj_region']
+        shifted_mask = self.prepare_controller_ref_mask(shifted_mask)
+
+        final_im,noised_img,candidate_mask,retain_region = \
+            self.DDIM_DDPM_MASK(
+                img,
+                prompt,
+                prompt,
+                num_steps=num_step,
+                start_step=start_step,
+                guidance_scale=guidance_scale,
+                version = 0,
+                eta = eta,
+                roi_expansion=True,mask_threshold=mask_threshold_target, post_process='hard',mask=shifted_mask,target_mask_type=target_mask_type,
+                retain_mask = retain_mask, dilate_kernel_size=dilate_kernel_size,blending_alpha=blending_alpha
             )
         return [img_preprocess], [final_im] ,[noised_img],[inpaint_mask],[expand_mask],[candidate_mask],[retain_region]#iterable image for gallery
     def normalize_expansion_mask(self,mask,exp_mask,roi_expansion):
@@ -1300,7 +1437,7 @@ class ClawerModels(StableDiffusionPipeline):
         plt.title(title)
         plt.axis('off')  # 去掉坐标轴
         plt.savefig(name+'.png')
-        plt.show()
+        # plt.show()
     def get_self_adaptive_init_thr(self,obj_mask,strict_threshold,adp_k):
         valid_region = (obj_mask > 0).sum()
         invalid_region = (obj_mask == 0).sum()
@@ -1799,8 +1936,19 @@ class ClawerModels(StableDiffusionPipeline):
             # print(final_im.size)
         return final_im , noised_image
 
+    def alpha_blend(self,img1, img2, alpha):
+        """
+        对两个图像进行 alpha 混合
+        :param img1: 第一个输入图像（0-255 范围的 numpy 数组）
+        :param img2: 第二个输入图像（0-255 范围的 numpy 数组）
+        :param alpha: alpha 值（0-1 之间的浮点数）
+        :return: 混合后的图像
+        """
+        blended_img = (1 - alpha) * img2 + alpha * img1
+        return blended_img.astype(np.uint8)
     def DDIM_DDPM_MASK(self, input_image, input_image_prompt, edit_prompt, num_steps=100, start_step=30, guidance_scale=3.5,
-             version=0, eta=0, roi_expansion=True,mask_threshold=0.1, post_process='hard',mask=None,target_mask_type='FOR',retain_mask=None,dilate_kernel_size=15):
+             version=0, eta=0, roi_expansion=True,mask_threshold=0.1, post_process='hard',mask=None,target_mask_type='FOR',retain_mask=None,dilate_kernel_size=15,
+                       blending_alpha=0.5):
         ##input_image original PIL 512,512
         # VERSION ONE : DDIM Inversion official code in huggingface
         # VERSION TWO : DDIM inversion code in dragon utils
@@ -1852,6 +2000,7 @@ class ClawerModels(StableDiffusionPipeline):
             elif target_mask_type == 'BOTH':
                 candidate_mask = self.fetch_expansion_mask_from_store([ddim_inv_expansion_masks,ddpm_for_expansion_masks], mask, roi_expansion,post_process, mask_threshold)
 
+            # retain_mask = None
             if retain_mask is not None:
                 # blending with CPI img to retain consistent part
 
@@ -1867,15 +2016,24 @@ class ClawerModels(StableDiffusionPipeline):
                 retain_region = self.dilate_mask(retain_region_mask.astype(np.uint8), dilate_factor=dilate_kernel_size)[:,:,None]
                 # retain_region = retain_region_mask.astype(np.uint8)[:,:,None]
                 # print(retain_region.shape)
+                input_image = np.array(input_image)
+                final_im = np.array(final_im)
+                pixel_wise_alpha = retain_region * blending_alpha
+                final_im = self.alpha_blend(final_im,input_image,pixel_wise_alpha)
+                print(final_im.dtype)
+                if isinstance(final_im, np.ndarray):
+                    final_im = Image.fromarray(final_im)
+                final_im.save('blended_img.png')
 
-                final_im = (1-retain_region)* input_image + retain_region * final_im
+
+
 
                 return final_im, noised_image, candidate_mask, retain_region[:,:,0] * 255
 
 
 
 
-        return final_im, noised_image, candidate_mask ,None
+        return final_im, noised_image, candidate_mask ,candidate_mask
 
     def MY_DDIM_INV(self, input_image, input_image_prompt, num_steps=100, guidance_scale=3.5,
               eta=0):

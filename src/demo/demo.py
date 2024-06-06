@@ -11,47 +11,47 @@ examples_CPIG_FULL = [
         "examples/move/001.png",
         "examples/move/001.png",
         'a photo of a cup',
-        'photograph of a beautiful empty scene，highest quality settings',
+        'empty scene',
     ],
     [
         "examples/move/002.png",
         "examples/move/002.png",
         "examples/move/002.png",
         'a photo of apples',
-        'photograph of a beautiful empty scene，highest quality settings',
+        'empty scene',
     ],
     [
         "examples/move/003.png",
         "examples/move/003.png",
         "examples/move/003.png",
         'a photo of a table',
-        'photograph of a beautiful empty scene，highest quality settings',
+        'empty scene',
     ],
     [
         "examples/move/004.png",
         "examples/move/004.png",
         "examples/move/004.png",
         'Astronauts play football on the moon',
-        'photograph of a beautiful empty scene，highest quality settings',
+        'empty scene',
     ],
     [
         "examples/move/005.png",
         "examples/move/005.png",
         "examples/move/005.png",
         'sun',
-        'photograph of a beautiful empty scene，highest quality settings',
+        'empty scene',
     ],
     ["examples/appearance/004_base.jpg",
      "examples/appearance/004_base.jpg",
      "examples/appearance/004_base.jpg",
      'car',
-     'photograph of a beautiful empty scene，highest quality settings',],
+     'empty scene',],
     [
         "examples/drag/003.png",
         "examples/drag/003.png",
         "examples/drag/003.png",
         'oil painting',
-        'photograph of a beautiful empty scene，highest quality settings',],
+        'empty scene',],
 ]
 # MyExamples
 examples_CPIG = [
@@ -900,7 +900,7 @@ def create_my_demo(runner):
                                     img_draw_box, img, output, output_edit , noised_img, INP_Mask,img_ref ])
     return demo
 
-def create_my_demo_full(runner):
+def create_my_demo_full_3D(runner):
     DESCRIPTION = """
     ## Baseline Demo with simple copy-paste and inpainting
     Usage:
@@ -970,6 +970,13 @@ def create_my_demo_full(runner):
                             step=1,
                             value=5,
                             interactive=True)
+                        mask_threshold = gr.Slider(
+                            label=" mask_threshold",
+                            minimum=0,
+                            maximum=1,
+                            step=0.1,
+                            value=0.1,
+                            interactive=True)
                         mode = gr.Slider(
                             label=" inpainting mode selection 1:laMa 2:sd-inpaint",
                             minimum=1,
@@ -992,18 +999,32 @@ def create_my_demo_full(runner):
                             value=1,
                             interactive=True)
                         strong_inpaint = gr.Slider(
-                            label="Refine inpainting ,utilize double input 0:False 1:True",
-                            minimum=0,
+                            label="Strong inpaint area 0:False 1:True",
+                            minimum=1,
                             maximum=1,
                             step=1,
                             value=1,
+                            interactive=False)
+                        cross_enhance = gr.Slider(
+                            label="Cross_enhance 0:False 1:True",
+                            minimum=0,
+                            maximum=1,
+                            step=1,
+                            value=0,
                             interactive=True)
                         standard_drawing = gr.Slider(
                             label="select the box draw or casual draw to upload mask 0:casual draw 1:standard box draw",
                             minimum=0,
                             maximum=1,
                             step=1,
-                            value=0,
+                            value=1,
+                            interactive=True)
+                        blending_alpha= gr.Slider(
+                            label="alpha_blending value for blending edited regions and original images",
+                            minimum=0,
+                            maximum=1,
+                            step=0.1,
+                            value=0.3,
                             interactive=True)
                         max_resolution = gr.Slider(label="Resolution", value=768, minimum=428, maximum=1024, step=1)
                         dilate_kernel_size = gr.Slider(
@@ -1011,7 +1032,7 @@ def create_my_demo_full(runner):
                             minimum=1,
                             maximum=100,
                             step=1,
-                            value=15,
+                            value=30,
                             interactive=True)
                         contrast_beta = gr.Slider(
                             label="contrast_beta for contrast operation in attention map store >1:focus <1:sparse",
@@ -1049,6 +1070,13 @@ def create_my_demo_full(runner):
                                 maximum=1,
                                 step=1,
                                 value=0,
+                                interactive=True)
+                            mask_threshold_target = gr.Slider(
+                                label=" mask_threshold_target",
+                                minimum=0,
+                                maximum=1,
+                                step=0.1,
+                                value=0.1,
                                 interactive=True)
 
 
@@ -1111,7 +1139,8 @@ def create_my_demo_full(runner):
 
         run_button.click(fn=runner,
                          inputs=[original_image, mask, prompt, INP_prompt, seed, selected_points, guidance_scale, num_step, max_resolution,mode,dilate_kernel_size,
-                                 start_step,mask_ref,eta,use_mask_expansion,standard_drawing,contrast_beta,exp_mask_type,resize_scale,rotation_angle,strong_inpaint,flip_horizontal,flip_vertical], outputs=[output_edit ,output ,noised_img ,INP_Mask,EXP_Mask,EXP_Mask_2,retain_region])
+                                 start_step,mask_ref,eta,use_mask_expansion,standard_drawing,contrast_beta,exp_mask_type,resize_scale,rotation_angle,strong_inpaint,flip_horizontal,flip_vertical,cross_enhance,
+                                 mask_threshold,mask_threshold_target,blending_alpha], outputs=[output_edit ,output ,noised_img ,INP_Mask,EXP_Mask,EXP_Mask_2,retain_region])
         clear_button.click(fn=fun_clear,
                            inputs=[original_image, global_points, global_point_label, selected_points, mask,mask_ref,
                                    img_draw_box, img, output, output_edit, noised_img,INP_Mask,EXP_Mask,img_ref,EXP_Mask_2,retain_region],
