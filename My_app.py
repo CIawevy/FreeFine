@@ -1,9 +1,9 @@
 from src.demo.download import download_all
 # download_all()
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
+os.environ["CUDA_VISIBLE_DEVICES"]="7"
 from simple_lama_inpainting import SimpleLama
-from src.demo.demo import create_my_demo,create_my_demo_full
+from src.demo.demo import create_my_demo,create_my_demo_full,create_my_demo_full_3D
 from src.demo.model import ClawerModels
 from src.unet.unet_2d_condition import DragonUNet2DConditionModel
 import torch
@@ -19,8 +19,8 @@ device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('
 # print(torch.cuda.get_device_name(0))
 
 
-# pretrained_inpaint_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-inpainting/"
-pretrained_inpaint_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-2-inpainting/"
+pretrained_inpaint_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-inpainting/"
+# pretrained_inpaint_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-2-inpainting/"
 sd_inpainter = StableDiffusionInpaintPipeline.from_pretrained(
     pretrained_inpaint_model_path,
     revision="fp16",
@@ -51,9 +51,9 @@ model.controller = controller
 register_attention_control(model, controller)
 model.enable_attention_slicing()
 model.enable_xformers_memory_efficient_attention()
-DESCRIPTION = '# 🐉🐉[DragonDiffusion V1.0](https://github.com/MC-E/DragonDiffusion)🐉🐉'
+DESCRIPTION = '# 🐉🐉[Reggio V1.0](https://github.com/CIawevy/Reggio)🐉🐉'
 
-DESCRIPTION += f'<p>Gradio demo for [DragonDiffusion](https://arxiv.org/abs/2307.02421) and [DiffEditor](https://arxiv.org/abs/2307.02421). If it is helpful, please help to recommend [[GitHub Repo]](https://github.com/MC-E/DragonDiffusion) to your friends 😊 </p>'
+DESCRIPTION += f'<p>Gradio demo for [Reggio](https://arxiv.org/abs/2307.02421) and [DiffEditor](https://arxiv.org/abs/2307.02421). If it is helpful, please help to recommend [[GitHub Repo]](https://github.com/CIawevy/Reggio) to your friends 😊 </p>'
 
 with gr.Blocks(css='style.css') as demo:
     gr.Markdown(DESCRIPTION)
@@ -62,6 +62,8 @@ with gr.Blocks(css='style.css') as demo:
             # create_my_demo(model.run_my_Baseline)
         with gr.TabItem('Expansion Mask geometric editing'):
             create_my_demo_full(model.run_my_Baseline_full)
+        with gr.TabItem('3D-Expansion Mask geometric editing'):
+            create_my_demo_full_3D(model.run_my_Baseline_full_3D)
 
 demo.queue(concurrency_count=3, max_size=20)
 # demo.launch(server_name="0.0.0.0")
