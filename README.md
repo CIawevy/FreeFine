@@ -50,7 +50,7 @@ pip install simple-lama-inpainting
 
 # ⏬ Download Models 
 All models will be automatically downloaded. You can also choose to download manually from this [url](https://huggingface.co/Adapter/DragonDiffusion).
-Besides download the sd-inpainting model yourself
+Besides download the `sd-inpainting` model and `Depth-anything` model weights yourself.
 
 # 💻 How to Test
 Inference requires at least `22GB` of GPU memory for editing a `768x768` image.  
@@ -62,6 +62,10 @@ run this command to generate expansion mask for local imgs and org masks. An off
 which is easier to debug
 ```bash
 python mask_expansion_main.py
+```
+run this command to debug 3D-Editing opereation without gradio. An offline version
+```bash
+python 3d_geometric_transform.py
 ```
 
 
