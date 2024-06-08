@@ -1,4 +1,4 @@
-from src.utils.geometric_utils import get_transformation_matrix,warpAffine3D
+from src.utils.geometric_utils import Integrated3DTransformAndInpaint
 import os
 
 
@@ -75,9 +75,9 @@ if __name__ == "__main__":
     mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
 
     image_raw = np.array(color_image)
-    plt.imshow(image_raw)
-    plt.title("RAW Image")
-    plt.show()
+    # plt.imshow(image_raw)
+    # plt.title("RAW Image")
+    # plt.show()
     h, w = image_raw.shape[:2]
     #preprocess image for depth estimate
     image = image_raw / 255
@@ -101,7 +101,7 @@ if __name__ == "__main__":
     depth = depth_unit * torch.clip((base_depth + 1 - normalized_depth),max=1)
     depth = depth.cpu().numpy().astype(np.uint8)
     # plot_depth( (normalized_depth.cpu().numpy() * 255.0).astype(np.uint8),'network ouput depth')
-    plot_depth(depth,'Converted True depth')
+    # plot_depth(depth,'Converted True depth')
 
     image_np = image_raw
     depth_map = depth
@@ -109,8 +109,8 @@ if __name__ == "__main__":
 
 
     # 模拟用户输入
-    tx, ty, tz = 0.1, 0, 0  # 相对平移量 定义在三维坐标系上
-    rx, ry, rz = 0, 0, 0  # 旋转角度（度数）
+    tx, ty, tz = 0, 0, 0  # 相对平移量 定义在三维坐标系上
+    rx, ry, rz = 0, -40, 0  # 旋转角度（度数）
     sx, sy, sz = 1, 1, 1  # 缩放比例 >1为缩小
 
 
@@ -134,21 +134,26 @@ if __name__ == "__main__":
 
 
 
-    # resized_color_image = color_image.resize((FINAL_WIDTH, FINAL_HEIGHT), Image.LANCZOS)
-    # resized_pred = Image.fromarray(depth).resize((FINAL_WIDTH, FINAL_HEIGHT), Image.NEAREST)
-    transformed_image, transformed_depth = warpAffine3D(image_np,depth_map,transforms,FX,FY,mask,)
-    view(transformed_image,title="transformed_image")
-    plot_depth(transformed_depth.astype(np.uint8), 'transformed depth')
-
-    transformed_mask,_ = warpAffine3D(mask[:,:,None],depth_map,transforms,FX,FY,mask)
-    plot_depth(transformed_mask.astype(np.uint8), 'transformed_mask')
+    transformed_image, transformed_mask,transformed_depth,inpaint_mask = Integrated3DTransformAndInpaint(image_np,depth_map,transforms,FX,FY,mask,object_only=True)
+    # view(transformed_image,title="transformed_image")
+    # plot_depth(transformed_depth.astype(np.uint8), 'transformed depth')
+    # plot_depth(transformed_mask.astype(np.uint8), 'transformed_mask')
+    # plot_depth(inpaint_mask.astype(np.uint8), 'inpaint_mask')
     mask = (mask > 128).astype(bool)
     transformed_mask = (transformed_mask > 128).astype(bool)
+    inpaint_mask = (inpaint_mask>128).astype(bool)
+    repair_mask = (mask & ~transformed_mask)| inpaint_mask
+    # plot_depth(repair_mask.astype(np.uint8)*255, 'repair_mask')
 
-    image_with_hole = np.where(mask[:,:,None], 0, image_np).astype(np.uint8)  # for visualization use
+    image_with_hole = np.where(mask[:, :, None], 0, image_np).astype(np.uint8)  # for visualization use
     new_image = np.where(transformed_mask[:, :, None], transformed_image,image_with_hole)
-
     view(new_image,'blended_image')
+
+    old_transformed_mask = transformed_mask & ~inpaint_mask
+    image_with_hole = np.where(repair_mask[:, :, None], 0, image_np).astype(np.uint8)  # for visualization use
+    image_with_to_be_inpaint = np.where(old_transformed_mask[:, :, None], transformed_image,image_with_hole)  # for visualization use
+    view(image_with_to_be_inpaint, 'image_with_to_be_inpaint')
+    print('finish')
 
 
 
