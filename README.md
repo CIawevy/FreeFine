@@ -3,6 +3,7 @@
 
 
 ## 🚩 **New Features/Updates**
+- Support any form of 2D/3D transformation now!
 - Support for different format of user input: Box Draw / Casual Draw 
 - Expansion of the orignal mask and moving with background correlation semantics
 - Single Copy Paste & Generation Baseline namingly CPIG Baseline for natrual geometric editing 
@@ -15,6 +16,8 @@
 - src/utils/attention.py: My attention logger and controller , get expansion mask each layer /step.
 - src/demo/model  ClawerModels: ensembles most of functions needed .
 - dynamic_thr_vis.py playful visualization tools for dynamic thr function  selection.
+- 3d_geometric_transform.py Offline code for User defined 3D operations and transforming demo .
+- src/utils/geometric_utils.py: Most of my 3D transformation functions are defined here.
 
 # 🔥🔥🔥 Main Features  
 
