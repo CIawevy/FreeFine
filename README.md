@@ -18,20 +18,25 @@
 
 # 🔥🔥🔥 Main Features  
 
-### **Mask Expansion**  
-![mask-expansion](examples/mask-expansion-2.png)
+### **Object-Moving**  
+![Object-Moving](examples/object-moving.png)
 
 
-### **Object Moving with box input**  
-![CPIG-SD-inpaint](examples/sd-inpainting.png)
+### **Object-Moving**  
+![object-moving-2](examples/object-moving-2.png)
 
-### **Object Moving with casual draw**  
 
-![CPIG-LaMa-inpaint](examples/lama-inpainting.png)
+### **Object-Moving **  
+![object-moving-3](examples/object-moving-3.png)
 
-### **Combined of any Geometric Editing with Casual draw**  
+### **3D-Transforming**
+![3D-Transform](examples/current-3d-transform.png)
 
-![CPIG-LaMa-inpaint](examples/2d-geometric-editing.png)
+### **3D-CPI-Pipeline**
+![3D-CPI-PIPELINE](examples/3D-CPI-PIPELINE.png)
+
+### **Watermark-Removing**
+![watermark-removing](examples/watermark-removing.png)
 
 # 🔧 Dependencies and Installation
 
