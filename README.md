@@ -45,11 +45,17 @@
 
 - Python >= 3.8 (Recommend to use [Anaconda](https://www.anaconda.com/download/#linux) or [Miniconda](https://docs.conda.io/en/latest/miniconda.html))
 - [PyTorch >= 2.0.1](https://pytorch.org/)
+- [Pytorch3d](https://anaconda.org/pytorch3d/repo/files?type=any&label=main)
 ```bash
 pip install -r requirements.txt
 pip install dlib==19.14.0
 pip install simple-lama-inpainting
+pip install accelerate  
+#Besides you need to install pytorch-3d yourself.
+conda install -c fvcore -c iopath -c conda-forge fvcore iopath
+conda install https://anaconda.org/pytorch3d/pytorch3d/0.7.5/download/linux-64/pytorch3d-0.7.5-py39_cu117_pyt201.tar.bz2
 ```
+
 
 # ⏬ Download Models 
 All models will be automatically downloaded. You can also choose to download manually from this [url](https://huggingface.co/Adapter/DragonDiffusion).

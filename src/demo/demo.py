@@ -900,6 +900,256 @@ def create_my_demo(runner):
                                     img_draw_box, img, output, output_edit , noised_img, INP_Mask,img_ref ])
     return demo
 
+def create_my_demo_full(runner):
+    DESCRIPTION = """
+    ## Baseline Demo with simple copy-paste and inpainting
+    Usage:
+    - Upload a source image, and then draw a box to generate the mask corresponding to the editing object(optional).
+    - Label the object's movement path on the source image.
+    - Label reference region. (optional)
+    - Add a text description to the image and click the `Edit` button to start editing."""
+
+    with gr.Blocks() as demo:
+        original_image = gr.State(value=None)  # store original image
+        mask_ref = gr.State(value=[])
+        selected_points = gr.State([])
+        global_points = gr.State([])
+        global_point_label = gr.State([])
+        gr.Markdown(DESCRIPTION)
+        with gr.Row():
+            with gr.Column():
+                with gr.Box():
+                    gr.Markdown("# INPUT")
+                    gr.Markdown("## 1. Draw box to mask target object(optional)")
+                    img_draw_box = gr.Image(source='upload', label="Draw box", interactive=True, type="numpy")
+
+                    gr.Markdown("## 2. Draw arrow to describe the movement")
+                    img = gr.Image(source='upload', label="Original image", interactive=True, type="numpy")
+
+                    gr.Markdown("## 3. casual draw to mask target object(optional)")
+                    img_ref = gr.Image(sourc='upload',tool="sketch", label="Original image", interactive=True, type="numpy")
+
+                    gr.Markdown("## 4. Prompt")
+                    prompt = gr.Textbox(label="Prompt")
+
+                    gr.Markdown("## 5.Inpaint Prompt")
+                    INP_prompt = gr.Textbox(label="INP_Prompt")
+
+
+
+                    with gr.Row():
+                        run_button = gr.Button("Edit")
+                        clear_button = gr.Button("Clear")
+
+                    with gr.Box():
+                        guidance_scale = gr.Slider(
+                            label="Classifier-free guidance strength",
+                            minimum=0,
+                            maximum=100,
+                            step=0.2,
+                            value=5,
+                            interactive=True)
+                        eta= gr.Slider(
+                            label="eta setting in DDIM denoising process 0:DDIM 1:DDPM",
+                            minimum=0,
+                            maximum=1,
+                            step=0.1,
+                            value=0.5,
+                            interactive=True)
+                        num_step = gr.Slider(
+                            label="number of diffusion steps",
+                            minimum=0,
+                            maximum=1000,
+                            step=1,
+                            value=10,
+                            interactive=True)
+                        start_step = gr.Slider(
+                            label="number of start step of num_step",
+                            minimum=0,
+                            maximum=1000,
+                            step=1,
+                            value=5,
+                            interactive=True)
+                        mask_threshold = gr.Slider(
+                            label=" mask_threshold",
+                            minimum=0,
+                            maximum=1,
+                            step=0.1,
+                            value=0.1,
+                            interactive=True)
+                        mode = gr.Slider(
+                            label=" inpainting mode selection 1:laMa 2:sd-inpaint",
+                            minimum=1,
+                            maximum=2,
+                            step=1,
+                            value=2,
+                            interactive=True)
+                        use_mask_expansion = gr.Slider(
+                            label="use mask expansion module to contain more semantic areas",
+                            minimum=0,
+                            maximum=1,
+                            step=1,
+                            value=1,
+                            interactive=True)
+                        exp_mask_type = gr.Slider(
+                            label="exp_mask_type-0:INV 1:FOR 2:BOTH",
+                            minimum=0,
+                            maximum=2,
+                            step=1,
+                            value=1,
+                            interactive=True)
+                        strong_inpaint = gr.Slider(
+                            label="Strong inpaint area 0:False 1:True",
+                            minimum=1,
+                            maximum=1,
+                            step=1,
+                            value=1,
+                            interactive=False)
+                        cross_enhance = gr.Slider(
+                            label="Cross_enhance 0:False 1:True",
+                            minimum=0,
+                            maximum=1,
+                            step=1,
+                            value=0,
+                            interactive=True)
+                        standard_drawing = gr.Slider(
+                            label="select the box draw or casual draw to upload mask 0:casual draw 1:standard box draw",
+                            minimum=0,
+                            maximum=1,
+                            step=1,
+                            value=1,
+                            interactive=True)
+                        blending_alpha= gr.Slider(
+                            label="alpha_blending value for blending edited regions and original images",
+                            minimum=0,
+                            maximum=1,
+                            step=0.1,
+                            value=0.3,
+                            interactive=True)
+                        max_resolution = gr.Slider(label="Resolution", value=768, minimum=428, maximum=1024, step=1)
+                        dilate_kernel_size = gr.Slider(
+                            label="dilate_kernel_size for inpainting mask dilation",
+                            minimum=1,
+                            maximum=100,
+                            step=1,
+                            value=30,
+                            interactive=True)
+                        contrast_beta = gr.Slider(
+                            label="contrast_beta for contrast operation in attention map store >1:focus <1:sparse",
+                            minimum=0.1,
+                            maximum=100,
+                            step=1,
+                            value=1.67,
+                            interactive=True)
+                        with gr.Accordion('Advanced options', open=False):
+                            seed = gr.Slider(label="Seed", value=42, minimum=0, maximum=10000, step=1, randomize=False)
+                            resize_scale = gr.Slider(
+                                label="Object resizing scale",
+                                minimum=0,
+                                maximum=10,
+                                step=0.1,
+                                value=1,
+                                interactive=True)
+                            rotation_angle = gr.Slider(
+                                label="Object clock-wise rotation angle [-180,180]",
+                                minimum=-180,
+                                maximum=180,
+                                step=10,
+                                value=0,
+                                interactive=True)
+                            flip_horizontal= gr.Slider(
+                                label="flip_horizontal",
+                                minimum=0,
+                                maximum=1,
+                                step=1,
+                                value=0,
+                                interactive=True)
+                            flip_vertical = gr.Slider(
+                                label="flip_horizontal",
+                                minimum=0,
+                                maximum=1,
+                                step=1,
+                                value=0,
+                                interactive=True)
+                            mask_threshold_target = gr.Slider(
+                                label=" mask_threshold_target",
+                                minimum=0,
+                                maximum=1,
+                                step=0.1,
+                                value=0.1,
+                                interactive=True)
+
+
+
+            with gr.Column():
+                with gr.Box():
+                    gr.Markdown("# OUTPUT")
+                    mask = gr.Image(source='upload', label="Mask of object", interactive=True, type="numpy")
+                    im_w_mask_ref = gr.Image(label="Mask of reference region", interactive=True, type="numpy")
+
+                    gr.Markdown("<h5><center>GenResults</center></h5>")
+                    output = gr.Gallery().style(grid=1, height='auto')
+
+                    gr.Markdown("<h5><center>EditResults</center></h5>")
+                    output_edit = gr.Gallery().style(grid=1, height='auto')
+
+                    gr.Markdown("<h5><center>NoisedImage</center></h5>")
+                    noised_img = gr.Gallery().style(grid=1, height='auto')
+
+                    gr.Markdown("<h5><center>InpaintingMask</center></h5>")
+                    INP_Mask = gr.Gallery().style(grid=1, height='auto')
+
+                    gr.Markdown("<h5><center>ExpansionMask</center></h5>")
+                    EXP_Mask = gr.Gallery().style(grid=1, height='auto')
+
+                    gr.Markdown("<h5><center>ExpansionMask_2</center></h5>")
+                    EXP_Mask_2 = gr.Gallery().style(grid=1, height='auto')
+
+                    gr.Markdown("<h5><center>Retain_Region</center></h5>")
+                    retain_region = gr.Gallery().style(grid=1, height='auto')
+
+                    # im_w_mask_ref = gr.Image(label="Mask of inpaint region", interactive=True, type="numpy")
+
+            img.select(
+                get_point_move,
+                [original_image, img, selected_points],
+                [img, original_image, selected_points,],
+            )
+            img_draw_box.select(
+                segment_with_points,
+                inputs=[img_draw_box, original_image, global_points, global_point_label, img],
+                outputs=[img_draw_box, original_image, mask, global_points, global_point_label, img]
+            )
+            img_ref.edit(
+                draw_inpaint_area,
+                [img_ref],
+                [original_image,im_w_mask_ref,mask_ref]
+            )
+        with gr.Column():
+            gr.Markdown("Try some of the examples below ⬇️")
+            gr.Examples(
+                examples=examples_CPIG_FULL,
+                inputs=[img_draw_box,img_ref,img,prompt,INP_prompt]
+            )
+
+        # run_button.click(fn=runner,
+        #                  inputs=[original_image, mask, mask_ref, prompt, resize_scale, w_edit, w_content, w_contrast,
+        #                          w_inpaint, seed, selected_points, guidance_scale, energy_scale, max_resolution,
+        #                          SDE_strength, ip_scale], outputs=[output])
+
+        run_button.click(fn=runner,
+                         inputs=[original_image, mask, prompt, INP_prompt, seed, selected_points, guidance_scale, num_step, max_resolution,mode,dilate_kernel_size,
+                                 start_step,mask_ref,eta,use_mask_expansion,standard_drawing,contrast_beta,exp_mask_type,resize_scale,rotation_angle,strong_inpaint,flip_horizontal,flip_vertical,cross_enhance,
+                                 mask_threshold,mask_threshold_target,blending_alpha], outputs=[output_edit ,output ,noised_img ,INP_Mask,EXP_Mask,EXP_Mask_2,retain_region])
+        clear_button.click(fn=fun_clear,
+                           inputs=[original_image, global_points, global_point_label, selected_points, mask,mask_ref,
+                                   img_draw_box, img, output, output_edit, noised_img,INP_Mask,EXP_Mask,img_ref,EXP_Mask_2,retain_region],
+                           outputs=[original_image, global_points, global_point_label, selected_points, mask,mask_ref,
+                                    img_draw_box, img, output, output_edit , noised_img,INP_Mask, EXP_Mask,img_ref,EXP_Mask_2,retain_region ])
+    return demo
+
+
+
 def create_my_demo_full_3D(runner):
     DESCRIPTION = """
     ## Baseline Demo with simple copy-paste and inpainting
@@ -1043,46 +1293,32 @@ def create_my_demo_full_3D(runner):
                             interactive=True)
                         with gr.Accordion('Advanced options', open=False):
                             seed = gr.Slider(label="Seed", value=42, minimum=0, maximum=10000, step=1, randomize=False)
-                            rt_x = gr.Slider(
-                                label="X axis Object clock-wise rotation angle [-180,180]",
+                            resize_scale = gr.Slider(
+                                label="Object resizing scale",
+                                minimum=0,
+                                maximum=10,
+                                step=0.1,
+                                value=1,
+                                interactive=True)
+                            rotation_angle = gr.Slider(
+                                label="Object clock-wise rotation angle [-180,180]",
                                 minimum=-180,
                                 maximum=180,
                                 step=10,
                                 value=0,
                                 interactive=True)
-                            rt_y = gr.Slider(
-                                label="X axis Object clock-wise rotation angle [-180,180]",
-                                minimum=-180,
-                                maximum=180,
-                                step=10,
-                                value=0,
-                                interactive=True)
-                            rt_z = gr.Slider(
-                                label="X axis Object clock-wise rotation angle [-180,180]",
-                                minimum=-180,
-                                maximum=180,
-                                step=10,
-                                value=0,
-                                interactive=True)
-                            scale_x = gr.Slider(
-                                label="X axis Object resize scale",
+                            flip_horizontal= gr.Slider(
+                                label="flip_horizontal",
                                 minimum=0,
-                                maximum=10,
-                                step=0.1,
+                                maximum=1,
+                                step=1,
                                 value=0,
                                 interactive=True)
-                            scale_y = gr.Slider(
-                                label="X axis Object resize scale",
+                            flip_vertical = gr.Slider(
+                                label="flip_horizontal",
                                 minimum=0,
-                                maximum=10,
-                                step=0.1,
-                                value=0,
-                                interactive=True)
-                            scale_z = gr.Slider(
-                                label="X axis Object resize scale",
-                                minimum=0,
-                                maximum=10,
-                                step=0.1,
+                                maximum=1,
+                                step=1,
                                 value=0,
                                 interactive=True)
                             mask_threshold_target = gr.Slider(

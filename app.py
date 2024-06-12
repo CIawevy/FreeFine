@@ -1,5 +1,5 @@
 from src.demo.download import download_all
-# download_all()
+download_all()
 import os
 os.environ["CUDA_VISIBLE_DEVICES"]="4"
 

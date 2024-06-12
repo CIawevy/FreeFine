@@ -1,7 +1,7 @@
 from src.demo.download import download_all
 # download_all()
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="7"
+os.environ["CUDA_VISIBLE_DEVICES"]="4"
 from simple_lama_inpainting import SimpleLama
 from src.demo.demo import create_my_demo,create_my_demo_full,create_my_demo_full_3D
 from src.demo.model import ClawerModels

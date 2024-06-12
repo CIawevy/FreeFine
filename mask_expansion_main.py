@@ -1,7 +1,7 @@
 from src.demo.download import download_all
 # download_all()
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
+os.environ["CUDA_VISIBLE_DEVICES"]="4"
 from simple_lama_inpainting import SimpleLama
 from src.demo.demo import create_my_demo
 from src.demo.model import ClawerModels
@@ -218,9 +218,9 @@ if __name__ == "__main__":
 
 
     #start!
-    image_path = "/data/Hszhu/DragonDiffusion/examples/Expansion_Mask/CPIG/"
-    mask_path = "/data/Hszhu/DragonDiffusion/examples/Expansion_Mask/masks/"
-    dst_path = "/data/Hszhu/DragonDiffusion/examples/Expansion_Mask/hard_high_cut_off_contrast_both_1.67"
+    image_path = "/data/Hszhu/Reggio/examples/Expansion_Mask/CPIG/"
+    mask_path = "/data/Hszhu/Reggio/examples/Expansion_Mask/masks/"
+    dst_path = "/data/Hszhu/Reggio/examples/Expansion_Mask/hard_high_cut_off_contrast_both_1.67"
     # dst_path = "/data/Hszhu/DragonDiffusion/examples/Expansion_Mask/"
     Path(dst_path).mkdir(parents=True, exist_ok=True)
     BFS_plot_save = os.path.join(dst_path,'BFS-distance')
