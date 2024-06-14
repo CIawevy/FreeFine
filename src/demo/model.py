@@ -1,6 +1,7 @@
 from src.models.dragondiff import DragonPipeline
 from src.utils.utils import resize_numpy_image, split_ldm, process_move, process_drag_face, process_drag, process_appearance, process_paste
 from src.utils.inversion import DDIMInversion
+from src.utils.geometric_utils import Integrated3DTransformAndInpaint
 import os
 import cv2
 from pytorch_lightning import seed_everything
@@ -721,6 +722,16 @@ class ClawerModels(StableDiffusionPipeline):
             # print(f'msk:{repair_mask.size}')
             inpainted_image = self.sd_inpainter(prompt=inp_prompt, image=to_inpaint_img, mask_image=repair_mask).images[
                 0]
+        elif mode == 3:
+            # lama inpainting first
+            print('lama inpaint')
+            to_inpaint_img = Image.fromarray(to_inpaint_img)
+            repair_mask = Image.fromarray(repair_mask)
+            inpainted_image = inpainter(to_inpaint_img, repair_mask)
+            # sd inpainting second
+            print('lama inpaint')
+            inpainted_image = self.sd_inpainter(prompt=inp_prompt, image=inpainted_image, mask_image=repair_mask).images[
+                0]
 
         if inpainted_image.size != to_inpaint_img.size:
             print(f'inpainted image {inpainted_image.size} -> original size {to_inpaint_img.size}')
@@ -739,6 +750,93 @@ class ClawerModels(StableDiffusionPipeline):
 
 
         return final_image, image_with_hole, transformed_mask , retain_mask
+
+
+    def move_and_inpaint_with_expansion_mask_3D(self, image, mask,depth_map, transforms, FX, FY,object_only=True,inpainter=None, mode=None,
+                                             dilate_kernel_size=15, inp_prompt=None,target_mask=None,blending_alpha=0.5):
+
+        if isinstance(image, Image.Image):
+            image = np.array(image)
+        if inp_prompt is None:
+            inp_prompt = 'empty scene'
+        # 将掩码转换为灰度并应用阈值
+        if mask.ndim == 3 and mask.shape[2] == 3:
+            mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
+            # mask = mask > 128
+
+        if target_mask.ndim == 3 and target_mask.shape[2] == 3:
+            target_mask = cv2.cvtColor(target_mask, cv2.COLOR_BGR2GRAY)
+            # target_mask =target_mask > 128
+
+        # mask = mask.astype(bool)
+        # target_mask = target_mask.astype(bool)
+        transformed_image_target_only, sparse_transformed_target_mask, transformed_depth = Integrated3DTransformAndInpaint(image,depth_map,
+                                                                                                               transforms,
+                                                                                                               FX, FY,
+                                                                                                               target_mask,object_only,
+                                                                                                               inpaint=False)
+        _, sparse_transformed_expand_mask, _   = Integrated3DTransformAndInpaint(image,depth_map,transforms, FX, FY, mask,object_only,inpaint=False)
+
+        # dilation_target = self.dilate_mask(sparse_transformed_target_mask, dilate_factor=15)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (10, 10))
+        closed_target = cv2.morphologyEx(sparse_transformed_target_mask, cv2.MORPH_CLOSE,kernel)
+        dilated_closed_target = self.dilate_mask(cv2.morphologyEx(sparse_transformed_expand_mask, cv2.MORPH_CLOSE,kernel),5)
+        closed_target = (closed_target >128).astype(bool)
+        sparse_target = (sparse_transformed_target_mask>128).astype(bool)
+        dilated_closed_target = (dilated_closed_target>128).astype(bool)
+        # mask: original expansion
+        # closed_target:   transformed closed target
+        # sparse_trans.. : transformed sparse target
+        mask = (mask>128).astype(bool)
+        full_repair = ((dilated_closed_target | mask) & ~sparse_target).astype(np.uint8)*255
+        # inner_repair = (closed_target &~sparse_target).astype(np.uint8)*255
+        # outer_repair = ((mask | dilated_closed_target)&~closed_target).astype(np.uint8)*255
+        blended_background = ~(mask | dilated_closed_target)
+        image_inner_sparse = np.where(blended_background[:,:,None],image,transformed_image_target_only)
+        # image_inner_full = cv2.inpaint(image_inner_sparse, inner_repair, inpaintRadius=3, flags=cv2.INPAINT_TELEA)
+        image_inner_full = inpainter(Image.fromarray(image_inner_sparse), Image.fromarray(full_repair))#lama inpainting inner
+        # image_with_hole =  image_inner_sparse
+        # image_with_hole = np.where(blended_background[:,:,None],image,image_inner_full) #vis next inpaint area
+        to_inpaint_img = image_inner_full
+        # repair_mask = full_repair
+        repair_mask =  ((dilated_closed_target | mask) & ~closed_target).astype(np.uint8)*255
+        image_with_hole = np.where( ((dilated_closed_target | mask) & ~closed_target)[:, :, None], 0, image_inner_full)
+        # else:
+        #     repair_mask = (mask.astype(np.uint8) * 255)  #(1)
+        #     # repair_mask = self.dilate_mask(repair_mask, dilate_factor=dilate_kernel_size) already expanision and dilation
+        #     image_with_hole = np.where(repair_mask[:, :, None], 0, image).astype(np.uint8)  # for visualization use
+        #     to_inpaint_img = image
+        if mode == 1:
+            # lama inpainting
+            # to_inpaint_img = Image.fromarray(to_inpaint_img)
+            inpaint_mask = Image.fromarray(repair_mask)
+            inpainted_image = inpainter(to_inpaint_img, inpaint_mask)
+        elif mode == 2:
+            # sd inpainting
+            # to_inpaint_img = Image.fromarray(to_inpaint_img)
+            inpaint_mask = Image.fromarray(repair_mask)
+            # print(f'img:{to_inpaint_img.size}')
+            # print(f'msk:{repair_mask.size}')
+            inpainted_image = self.sd_inpainter(prompt=inp_prompt, image=to_inpaint_img, mask_image=inpaint_mask).images[
+                0]
+
+        if inpainted_image.size != to_inpaint_img.size:
+            print(f'inpainted image {inpainted_image.size} -> original size {to_inpaint_img.size}')
+            inpainted_image = inpainted_image.resize(to_inpaint_img.size)
+            retain_mask = ~(repair_mask.astype(bool))
+            final_image = np.where(retain_mask[:, :, None], image_inner_full, inpainted_image)
+
+        # if inpaint_mode==0:
+        #     final_image = np.where(transformed_mask[:, :, None], new_image, inpainted_image)
+        # else:
+        # final_image = inpainted_image
+        #mask retain
+        retain_mask =  dict()
+        retain_mask['obj_region'] = closed_target
+        retain_mask['ori_expansion'] = mask
+
+        return final_image, image_with_hole, closed_target , retain_mask
+
 
     def move_and_inpaint_with_expansion_mask(self, image, mask, dx, dy,inpainter=None,mode=None,dilate_kernel_size=15,inp_prompt=None,
                                              resize_scale=None,rotation_angle=None,flip_horizontal=False, flip_vertical=False):
@@ -1062,34 +1160,48 @@ class ClawerModels(StableDiffusionPipeline):
 
 
         return [img_preprocess], [final_im] ,[noised_img],[inpaint_mask]#iterable image for gallery
+    def get_depth(self,image_raw):
+        h, w = image_raw.shape[:2]
+        image = image_raw / 255
+        image = self.transform({'image': image})['image']
+        # Reshape transformed image to (H, W, C) for plotting
+        image_plot = np.transpose(image, (1, 2, 0))
+        image = torch.from_numpy(image).unsqueeze(0).to(self.device)
+        base_depth = 0.1
+        depth_unit = 255
+        EPISILON = 1e-8
+        with torch.no_grad():
+            depth = self.depth_anything(image)
+        depth = F.interpolate(depth[None], (h, w), mode='bilinear', align_corners=False)[0, 0]
+        # GeoDiffuser Processor
+        depth = depth.max() - depth  # Negating depth as relative depth estimators assign high values to close objects. You can also try 1/depth (inverse depth, but we found this to work better prima facie)
+        depth = depth + depth.max() * base_depth  # This helps in reducing depth smearing where translate_factor is between 0 to 1.
+        depth = (depth - depth.min()) / (depth.max() - depth.min()) * 255  # Normalizes from 0-1.
+        return depth.cpu().numpy().astype(np.uint8)
     def run_my_Baseline_full_3D(self, original_image, mask, prompt,INP_prompt,
-                        seed, selected_points, guidance_scale, num_step, max_resolution, mode, dilate_kernel_size, start_step, mask_ref = None, eta=0, use_mask_expansion=True,
-                        standard_drawing=True,contrast_beta=1.67,exp_mask_type=0,resize_scale=1.0,rotation_angle=None,strong_inpaint=True,flip_horizontal=False, flip_vertical=False,cross_enhance=False,
+                        seed, guidance_scale, num_step, max_resolution, mode, dilate_kernel_size, start_step,tx,ty,tz,rx,ry,rz,sx,sy,sz, mask_ref = None, eta=0, use_mask_expansion=True,
+                        standard_drawing=True,contrast_beta=1.67,exp_mask_type=0,strong_inpaint=True,cross_enhance=False,
                              mask_threshold=0.1,mask_threshold_target=0.1,blending_alpha=0.5,
                         ):
         exp_mask_target = ['INV','FOR','BOTH']
         target_mask_type = exp_mask_target[int(exp_mask_type)]
         seed_everything(seed)
-        # energy_scale = energy_scale * 1e3
-        # get mask shifting values
-        # print(mask_ref.shape)
-        # storage=True
-        # if storage:
-        #     if isinstance(mask, np.ndarray):
-        #         mask_store = Image.fromarray(mask)
-        #     path = "/data/Hszhu/DragonDiffusion/examples/masks/"
-        #     i = 0
-        #     name =f'{i}.png'
-        #     while os.path.exists(os.path.join(path,name)):
-        #         i += 1
-        #         name = f'{i}.png'
-        #     mask_store.save(os.path.join(path,name))
-
+        transforms = [tx, ty, tz, rx, ry, rz, sx, sy, sz]
+        print(f'trans {transforms}')
         #select and resize
         img = original_image
         img, input_scale = resize_numpy_image(img, max_resolution * max_resolution)
+
+        depth = self.get_depth(img)
+        depth_map = (depth / 255 + 0.3) * 255
+
         print(img.shape) #768
         print(input_scale)
+        FINAL_WIDTH = img.shape[1]
+        FINAL_HEIGHT = img.shape[0]
+        FX = FINAL_WIDTH * 0.6
+        FY = FINAL_HEIGHT * 0.6
+
         if standard_drawing: #box only input
             mask_to_use = mask
             if input_scale != 1:
@@ -1097,7 +1209,7 @@ class ClawerModels(StableDiffusionPipeline):
             if strong_inpaint:
                 target_mask = mask_to_use
             mask_to_use = self.dilate_mask(mask_to_use, dilate_kernel_size) * 255 #dilate for better expansion mask
-            return_target = False
+            return_target = False #which designed for casual draw input target/expanded mask
 
         else:
             mask_to_use = mask_ref
@@ -1110,26 +1222,6 @@ class ClawerModels(StableDiffusionPipeline):
                         target_mask = np.array(self.dilate_mask(target_mask, dilate_kernel_size) * 255)
                     else: #use strict expansion mask to retain
                         return_target = True
-
-
-
-        #get move
-        x = []
-        y = []
-        x_cur = []
-        y_cur = []
-        for idx, point in enumerate(selected_points):
-            if idx % 2 == 0:
-                y.append(point[1])
-                x.append(point[0])
-            else:
-                y_cur.append(point[1])
-                x_cur.append(point[0])
-        #IF ERROR is Raised , check whether you select start and end moving points
-        dx = x_cur[0] - x[0]
-        dy = y_cur[0] - y[0]
-        dx = int(dx * input_scale)
-        dy = int(dy * input_scale)
         #mask expansion
         if return_target:
             self.controller.contrast_beta = contrast_beta * 100
@@ -1149,7 +1241,8 @@ class ClawerModels(StableDiffusionPipeline):
 
         # copy-paste-inpaint to get initial img
         # if strong_inpaint:
-        img_preprocess, inpaint_mask, shifted_mask, retain_mask = self.move_and_inpaint_with_expansion_mask_new(img, expand_mask, dx, dy, self.inpainter,mode,dilate_kernel_size,INP_prompt, resize_scale,rotation_angle,target_mask,flip_horizontal,flip_vertical)
+        img_preprocess, inpaint_mask, shifted_mask, retain_mask = self.move_and_inpaint_with_expansion_mask_3D(img, expand_mask,depth_map, transforms, FX,FY,True,
+                                                                                                               self.inpainter,mode,dilate_kernel_size,INP_prompt,target_mask,blending_alpha=blending_alpha)
         # else:
         #     img_preprocess,inpaint_mask,shifted_mask = self.move_and_inpaint_with_expansion_mask(img, expand_mask, dx, dy,self.inpainter,mode,dilate_kernel_size,INP_prompt,resize_scale,rotation_angle,flip_horizontal,flip_vertical)
         #     retain_mask = None
@@ -1175,7 +1268,7 @@ class ClawerModels(StableDiffusionPipeline):
                 roi_expansion=True,mask_threshold=mask_threshold_target, post_process='hard',mask=shifted_mask,target_mask_type=target_mask_type,
                 retain_mask = retain_mask, dilate_kernel_size=dilate_kernel_size,blending_alpha=blending_alpha
             )
-        return [img_preprocess], [final_im] ,[noised_img],[inpaint_mask],[expand_mask],[candidate_mask],[retain_region]#iterable image for gallery
+        return [img_preprocess], [final_im] ,[noised_img],[inpaint_mask],[expand_mask],[candidate_mask],[retain_region],[depth]#iterable image for gallery
     def run_my_Baseline_full(self, original_image, mask, prompt,INP_prompt,
                         seed, selected_points, guidance_scale, num_step, max_resolution, mode, dilate_kernel_size, start_step, mask_ref = None, eta=0, use_mask_expansion=True,
                         standard_drawing=True,contrast_beta=1.67,exp_mask_type=0,resize_scale=1.0,rotation_angle=None,strong_inpaint=True,flip_horizontal=False, flip_vertical=False,cross_enhance=False,

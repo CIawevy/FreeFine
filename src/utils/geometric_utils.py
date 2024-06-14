@@ -26,6 +26,7 @@ def  RasterizePointsXYsBlending(pts3D, src, size, radius,points_per_pixel,rad_po
 
     pts3D[:,:,1] = - pts3D[:,:,1]
     pts3D[:,:,0] = - pts3D[:,:,0]
+    pts3D[:, :, 2] = - pts3D[:, :, 2]
 
     # Add on the default feature to the end of the src
     # src = torch.cat((src, self.default_feature.repeat(bs, 1, 1)), 2)
@@ -162,7 +163,7 @@ def dilate_mask(mask, dilate_factor=3):
 
 
 
-def Integrated3DTransformAndInpaint(img, depth,transforms, focal_length_x, focal_length_y, mask,object_only=True):
+def Integrated3DTransformAndInpaint(img, depth,transforms, focal_length_x, focal_length_y, mask,object_only=True,inpaint=True):
     """
     Clawer made fantastic 3D transformation function
     """
@@ -170,8 +171,9 @@ def Integrated3DTransformAndInpaint(img, depth,transforms, focal_length_x, focal
     FINAL_WIDTH = img.shape[1]
     FINAL_HEIGHT = img.shape[0]
     if object_only:
-        image = img.copy()
+        # image = img.copy()
         img = np.where((mask>128).astype(bool)[:,:,None],img,0)
+        # img = np.where(mask[:, :, None], img, 0)
     # Create meshgrid for pixel coordinates
     x, y = np.meshgrid(np.arange(FINAL_WIDTH), np.arange(FINAL_HEIGHT))
 
@@ -186,6 +188,7 @@ def Integrated3DTransformAndInpaint(img, depth,transforms, focal_length_x, focal
 
     # Convert mask to 3D points and calculate the 3D center
     mask_index = (mask.flatten()>128).astype(bool)
+    # mask_index = mask.flatten()
     masked_points_3d = points_3d[mask_index]
     center_3d = np.array([masked_points_3d[:,0].mean(), masked_points_3d[:,1].mean(), masked_points_3d[:,2].mean()])
 
@@ -211,7 +214,7 @@ def Integrated3DTransformAndInpaint(img, depth,transforms, focal_length_x, focal
     # Reproject 3D coordinates back to 2D
 
     new_depth_image = np.ones_like(depth)*np.inf
-    new_color_image = np.zeros_like(img)
+    new_color_image = np.full_like(img,0)
     new_mask_image = np.zeros_like(mask)
     # 开始计时
     start_time = time.time()
@@ -243,14 +246,15 @@ def Integrated3DTransformAndInpaint(img, depth,transforms, focal_length_x, focal
     # 计算执行时间
     elapsed_time = end_time - start_time
     print(f"object-only:{object_only} \n 代码执行时间: {elapsed_time} 秒")
-    dilation_mask = dilate_mask(new_mask_image, dilate_factor=15)
-    inpaint_mask = ((dilation_mask>128).astype(bool) & ~(new_mask_image>128).astype(bool)).astype(np.uint8)*255
-    if object_only:
-        concat_mask = (dilation_mask>128).astype(bool) | (mask>128).astype(bool)
-        new_color_image = np.where(concat_mask[:,:,None],new_color_image,image)#防止黑边
-    new_color_image= cv2.inpaint(new_color_image, inpaint_mask, inpaintRadius=3, flags=cv2.INPAINT_TELEA)
-    # new_depth_image = cv2.inpaint(new_depth_image, inpaint_mask, inpaintRadius=3, flags=cv2.INPAINT_TELEA)
-    return new_color_image, dilation_mask, new_depth_image, inpaint_mask
+    # if inpaint:
+    #     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
+    #     dilation_mask = cv2.morphologyEx(new_mask_image, cv2.MORPH_CLOSE, kernel)
+    #     inpaint_mask = ((dilation_mask>128).astype(bool) & ~(new_mask_image>128).astype(bool)).astype(np.uint8)*255
+    #     new_color_image= cv2.inpaint(new_color_image, inpaint_mask, inpaintRadius=3, flags=cv2.INPAINT_TELEA)
+    #     # new_depth_image = cv2.inpaint(new_depth_image, inpaint_mask, inpaintRadius=3, flags=cv2.INPAINT_TELEA)
+    #     return new_color_image, dilation_mask, new_depth_image, inpaint_mask
+    # else:
+    return new_color_image, new_mask_image, new_depth_image
 
 def Integrated3DTransformAndRasterize(img, depth,transforms, focal_length_x, focal_length_y, mask,object_only=True,
                                       splatting_radius=1.3,splatting_tau=0,splatting_points_per_pixel=15,device=None):

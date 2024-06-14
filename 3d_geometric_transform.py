@@ -143,40 +143,40 @@ if __name__ == "__main__":
     splatting_points_per_pixel = 8
 
 
-    # transformed_image, transformed_mask,transformed_depth,inpaint_mask = Integrated3DTransformAndInpaint(image_np,depth_map,transforms,FX,FY,mask,object_only=True)
-    # view(transformed_image,title="transformed_image")
-    # plot_depth(transformed_depth.astype(np.uint8), 'transformed depth')
-    # plot_depth(transformed_mask.astype(np.uint8), 'transformed_mask')
-    # plot_depth(inpaint_mask.astype(np.uint8), 'inpaint_mask')
-    # mask = (mask > 128).astype(bool)
-    # transformed_mask = (transformed_mask > 128).astype(bool)
-    # inpaint_mask = (inpaint_mask>128).astype(bool)
-    # repair_mask = (mask & ~transformed_mask)| inpaint_mask
-    # # plot_depth(repair_mask.astype(np.uint8)*255, 'repair_mask')
-    #
-    # image_with_hole = np.where(mask[:, :, None], 0, image_np).astype(np.uint8)  # for visualization use
-    # new_image = np.where(transformed_mask[:, :, None], transformed_image,image_with_hole)
-    # view(new_image,'blended_image')
-    #
-    # old_transformed_mask = transformed_mask & ~inpaint_mask
-    # image_with_hole = np.where(repair_mask[:, :, None], 0, image_np).astype(np.uint8)  # for visualization use
-    # image_with_to_be_inpaint = np.where(old_transformed_mask[:, :, None], transformed_image,image_with_hole)  # for visualization use
-    # view(image_with_to_be_inpaint, 'image_with_to_be_inpaint')
-    # print('finish')
-    transformed_image, transformed_mask = Integrated3DTransformAndRasterize(image_np, depth_map,transforms,FX, FY, mask,object_only=True,
-                                                                                                        splatting_radius=splatting_radius,
-                                                                                                        splatting_tau=splatting_tau,
-                                                                                                        splatting_points_per_pixel=splatting_points_per_pixel,
-                                                                                                        device = device)
+    transformed_image, transformed_mask,transformed_depth,inpaint_mask = Integrated3DTransformAndInpaint(image_np,depth_map,transforms,FX,FY,mask,object_only=True)
     view(transformed_image,title="transformed_image")
+    plot_depth(transformed_depth.astype(np.uint8), 'transformed depth')
     plot_depth(transformed_mask.astype(np.uint8), 'transformed_mask')
+    plot_depth(inpaint_mask.astype(np.uint8), 'inpaint_mask')
     mask = (mask > 128).astype(bool)
     transformed_mask = (transformed_mask > 128).astype(bool)
-    repair_mask = (mask & ~transformed_mask)
-    plot_depth(repair_mask.astype(np.uint8)*255, 'repair_mask')
+    inpaint_mask = (inpaint_mask>128).astype(bool)
+    repair_mask = (mask & ~transformed_mask)| inpaint_mask
+    # plot_depth(repair_mask.astype(np.uint8)*255, 'repair_mask')
+
     image_with_hole = np.where(mask[:, :, None], 0, image_np).astype(np.uint8)  # for visualization use
     new_image = np.where(transformed_mask[:, :, None], transformed_image,image_with_hole)
     view(new_image,'blended_image')
+
+    old_transformed_mask = transformed_mask & ~inpaint_mask
+    image_with_hole = np.where(repair_mask[:, :, None], 0, image_np).astype(np.uint8)  # for visualization use
+    image_with_to_be_inpaint = np.where(old_transformed_mask[:, :, None], transformed_image,image_with_hole)  # for visualization use
+    view(image_with_to_be_inpaint, 'image_with_to_be_inpaint')
+    print('finish')
+    # transformed_image, transformed_mask = Integrated3DTransformAndRasterize(image_np, depth_map,transforms,FX, FY, mask,object_only=True,
+    # #                                                                                                     splatting_radius=splatting_radius,
+    # #                                                                                                     splatting_tau=splatting_tau,
+    # #                                                                                                     splatting_points_per_pixel=splatting_points_per_pixel,
+    # #                                                                                                     device = device)
+    # view(transformed_image,title="transformed_image")
+    # plot_depth(transformed_mask.astype(np.uint8), 'transformed_mask')
+    # mask = (mask > 128).astype(bool)
+    # transformed_mask = (transformed_mask > 128).astype(bool)
+    # repair_mask = (mask & ~transformed_mask)
+    # plot_depth(repair_mask.astype(np.uint8)*255, 'repair_mask')
+    # image_with_hole = np.where(mask[:, :, None], 0, image_np).astype(np.uint8)  # for visualization use
+    # new_image = np.where(transformed_mask[:, :, None], transformed_image,image_with_hole)
+    # view(new_image,'blended_image')
 
 
 
