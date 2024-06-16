@@ -1,7 +1,8 @@
-from src.utils.geometric_utils import Integrated3DTransformAndInpaint,Integrated3DTransformAndRasterize
+from src.utils.geometric_utils import Integrated3DTransformAndInpaint
+from src.utils.geo_utils import IntegratedP3DTransRasterBlending
 import os
 
-
+import torch.nn as nn
 os.environ["CUDA_VISIBLE_DEVICES"]="4"
 import torch
 import cv2
@@ -90,31 +91,50 @@ if __name__ == "__main__":
     image = torch.from_numpy(image).unsqueeze(0).to(device)
     # Load image from image path to PIL image
     base_depth = 0.1
-    depth_unit = 255
+    max_z = 255
+    min_z = 10
     EPISILON = 1e-8
 
     with torch.no_grad():
         depth = depth_anything(image)
     depth = F.interpolate(depth[None], (h, w), mode='bilinear', align_corners=False)[0, 0]
-
+    process = 'Geo'
     #GeoDiffuser Processor
-    depth = depth.max() - depth  # Negating depth as relative depth estimators assign high values to close objects. You can also try 1/depth (inverse depth, but we found this to work better prima facie)
-    depth = depth + depth.max() * base_depth  # This helps in reducing depth smearing where translate_factor is between 0 to 1.
-    depth = (depth - depth.min()) / (depth.max() - depth.min())*255 # Normalizes from 0-1.
+    # Regressed points
+    if process=='Geo':
+        depth = depth.max() - depth  # Negating depth as relative depth estimators assign high values to close objects. You can also try 1/depth (inverse depth, but we found this to work better prima facie)
+        depth = depth + depth.max() * base_depth  # This helps in reducing depth smearing where translate_factor is between 0 to 1.
+        # depth = (depth - depth.min()) / (depth.max() - depth.min())  # Normalizes from 0-1.
+        #modified by clawer
+        depth = (depth - depth.min()) / (depth.max() - depth.min()) * (max_z - min_z) + min_z
+    elif process =='for':
+        depth = depth.max() - depth
+        depth = depth + depth.max() * base_depth
+        depth = (
+                nn.Sigmoid()(depth)
+                * (max_z - min_z)
+                + min_z
+        )
+    elif process=='inv':
+            # Use the inverse for datasets with landscapes, where there
+            # is a long tail on the depth distribution
+            depth = 1. / (nn.Sigmoid()(depth) * 10 + 0.01)
+
+
 
 
     depth = depth.cpu().numpy().astype(np.uint8)
     # plot_depth( (normalized_depth.cpu().numpy() * 255.0).astype(np.uint8),'network ouput depth')
-    plot_depth(depth,'Converted True depth')
+    # plot_depth(depth,'Converted True depth')
 
     image_np = image_raw
-    depth_map = depth /255
+    depth_map = depth
 
 
 
     # 模拟用户输入
-    tx, ty, tz = 0, 0, 0  # 相对平移量 定义在三维坐标系上
-    rx, ry, rz = 0, -40, 0  # 旋转角度（度数）
+    tx, ty, tz = 0.2, -0.3, 0.2  # 相对平移量 定义在三维坐标系上
+    rx, ry, rz = 0, -60, 0  # 旋转角度（度数）
     sx, sy, sz = 1, 1, 1  # 缩放比例 >1为缩小
 
 
@@ -133,50 +153,55 @@ if __name__ == "__main__":
 
     FINAL_WIDTH = image_np.shape[1]
     FINAL_HEIGHT = image_np.shape[0]
-    FX = FINAL_WIDTH * 0.6
-    FY = FINAL_HEIGHT * 0.6
+    # FX = FINAL_WIDTH * 0.6
+    # FY = FINAL_HEIGHT * 0.6
     #GeoDiffuser
-    # FX = 550
-    # FY = 550
-    splatting_radius = 1.3
+    FX = 1080
+    FY = 1080
+    splatting_radius = 0.015
     splatting_tau = 0.0
-    splatting_points_per_pixel = 8
+    splatting_points_per_pixel = 30
 
 
-    transformed_image, transformed_mask,transformed_depth,inpaint_mask = Integrated3DTransformAndInpaint(image_np,depth_map,transforms,FX,FY,mask,object_only=True)
-    view(transformed_image,title="transformed_image")
-    plot_depth(transformed_depth.astype(np.uint8), 'transformed depth')
-    plot_depth(transformed_mask.astype(np.uint8), 'transformed_mask')
-    plot_depth(inpaint_mask.astype(np.uint8), 'inpaint_mask')
-    mask = (mask > 128).astype(bool)
-    transformed_mask = (transformed_mask > 128).astype(bool)
-    inpaint_mask = (inpaint_mask>128).astype(bool)
-    repair_mask = (mask & ~transformed_mask)| inpaint_mask
-    # plot_depth(repair_mask.astype(np.uint8)*255, 'repair_mask')
-
-    image_with_hole = np.where(mask[:, :, None], 0, image_np).astype(np.uint8)  # for visualization use
-    new_image = np.where(transformed_mask[:, :, None], transformed_image,image_with_hole)
-    view(new_image,'blended_image')
-
-    old_transformed_mask = transformed_mask & ~inpaint_mask
-    image_with_hole = np.where(repair_mask[:, :, None], 0, image_np).astype(np.uint8)  # for visualization use
-    image_with_to_be_inpaint = np.where(old_transformed_mask[:, :, None], transformed_image,image_with_hole)  # for visualization use
-    view(image_with_to_be_inpaint, 'image_with_to_be_inpaint')
-    print('finish')
-    # transformed_image, transformed_mask = Integrated3DTransformAndRasterize(image_np, depth_map,transforms,FX, FY, mask,object_only=True,
-    # #                                                                                                     splatting_radius=splatting_radius,
-    # #                                                                                                     splatting_tau=splatting_tau,
-    # #                                                                                                     splatting_points_per_pixel=splatting_points_per_pixel,
-    # #                                                                                                     device = device)
+    # transformed_image, transformed_mask,transformed_depth,inpaint_mask = Integrated3DTransformAndInpaint(image_np,depth_map,transforms,FX,FY,mask,object_only=True)
     # view(transformed_image,title="transformed_image")
+    # # plot_depth(transformed_depth.astype(np.uint8), 'transformed depth')
     # plot_depth(transformed_mask.astype(np.uint8), 'transformed_mask')
+    # plot_depth(inpaint_mask.astype(np.uint8), 'inpaint_mask')
     # mask = (mask > 128).astype(bool)
     # transformed_mask = (transformed_mask > 128).astype(bool)
-    # repair_mask = (mask & ~transformed_mask)
-    # plot_depth(repair_mask.astype(np.uint8)*255, 'repair_mask')
+    # inpaint_mask = (inpaint_mask>128).astype(bool)
+    # repair_mask = (mask & ~transformed_mask)| inpaint_mask
+    # # plot_depth(repair_mask.astype(np.uint8)*255, 'repair_mask')
+    #
     # image_with_hole = np.where(mask[:, :, None], 0, image_np).astype(np.uint8)  # for visualization use
     # new_image = np.where(transformed_mask[:, :, None], transformed_image,image_with_hole)
     # view(new_image,'blended_image')
+
+    # old_transformed_mask = transformed_mask & ~inpaint_mask
+    # image_with_hole = np.where(repair_mask[:, :, None], 0, image_np).astype(np.uint8)  # for visualization use
+    # image_with_to_be_inpaint = np.where(old_transformed_mask[:, :, None], transformed_image,image_with_hole)  # for visualization use
+    # view(image_with_to_be_inpaint, 'image_with_to_be_inpaint')
+    # print('finish')
+
+    ##############################################################################################################################
+    ##############################################################################################################################
+
+    transformed_image, transformed_mask = IntegratedP3DTransRasterBlending(image_np, depth_map,transforms,FX, FY, mask,object_only=True,
+                                                                                                        splatting_radius=splatting_radius,
+                                                                                                        splatting_tau=splatting_tau,
+                                                                                                        splatting_points_per_pixel=splatting_points_per_pixel,
+                                                                                                        return_mask=True,
+                                                                                                        device = device)
+    view(transformed_image,title="transformed_image")
+    plot_depth(transformed_mask.astype(np.uint8), 'transformed_mask')
+    mask = (mask > 128).astype(bool)
+    transformed_mask = (transformed_mask > 128).astype(bool)
+    repair_mask = (mask & ~transformed_mask)
+    plot_depth(repair_mask.astype(np.uint8)*255, 'repair_mask')
+    image_with_hole = np.where(mask[:, :, None], 0, image_np).astype(np.uint8)  # for visualization use
+    new_image = np.where(transformed_mask[:, :, None], transformed_image,image_with_hole)
+    view(new_image,'blended_image')
 
 
 
