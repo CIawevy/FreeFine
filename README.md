@@ -32,8 +32,11 @@
 ### **Object-Moving **  
 ![object-moving-3](examples/object-moving-3.png)
 
-### **3D-Transforming**
-![3D-Transform](examples/current-3d-transform.png)
+### **3D-Editting **  
+![3D-Editting](examples/3D-Editting-current.png)
+
+### **3D-Editting **  
+![3D-Editting-2](examples/3D-Editting-current-2.png)
 
 ### **3D-CPI-Pipeline**
 ![3D-CPI-PIPELINE](examples/3D-CPI-PIPELINE.png)
