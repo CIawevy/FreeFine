@@ -1,0 +1,12 @@
+basicsr
+torch==2.1.0
+diffusers==0.18.0
+xformers==0.0.21
+transformers==4.30.1
+einops
+pytorch_lightning
+omegaconf
+gradio==3.50.2
+dlib==19.14.0
+simple-lama-inpainting
+accelerate
