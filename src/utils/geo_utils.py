@@ -107,7 +107,108 @@ def transform_point_cloud(point_cloud,transforms,device):
     transformed_point_cloud = apply_transformation(point_cloud, transform)
 
     return transformed_point_cloud
+def IntegratedP3DTransRasterBlendingFull(img, depth, transforms, focal_length_x, focal_length_y, mask, object_only=True,
+                                     splatting_radius=0.1, splatting_tau=0.1, splatting_points_per_pixel=5,return_mask=True,device=None,
+                                        ):
+    if device is None:
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+    with torch.no_grad():
+        h, w = depth.shape
+        i, j = np.meshgrid(np.arange(w), np.arange(h), indexing='xy')
+        i, j = torch.tensor(i, device=device), torch.tensor(j, device=device)
+        z = torch.tensor(depth, device=device)
+        x = (i - w / 2) * z / focal_length_x
+        y = (j - h / 2) * z / focal_length_y
+        znear, zfar = z.min(), z.max()
+        xmin, xmax = x.min(), x.max()
+        ymin, ymax = y.min(), y.max()
+        points = torch.stack((x, y, z), dim=-1).reshape(-1, 3)
+
+        rgb = torch.tensor(img, device=device, dtype=torch.float32).reshape(-1, 3)
+        mask = torch.tensor(mask, device=device).reshape(-1)
+
+        if object_only:
+            points = points[mask > 0]
+            rgb = rgb[mask > 0]
+
+
+        # open-cv world -> pytorch3d world
+        points[:, :2] = - points[:, :2]
+        #get cameta coordinates params
+
+
+        # Translate to object center as world coordinates
+        center_shift = points.mean(dim=0)
+        points -= center_shift
+
+        # pytorch3d coords point cloud
+        point_cloud = Pointclouds(points=[points], features=[rgb])
+        # Transform in world coordinates
+        point_cloud = transform_point_cloud(point_cloud, transforms, device)
+        #开始计时
+        start_time = time.time()
+
+
+
+        # construct my R T based on center_shifting
+        # R, T = look_at_view_transform(20, 0, 0)
+        # Construct R and T based on obj_center_shift
+        R = torch.eye(3, device=device)[None]  # Identity matrix for rotation
+        T = center_shift.view(1, 3)  # Translation vector
+        # 开始计时
+
+        # cameras =FoVOrthographicCameras(device=device, R=R, T=T, znear=znear, zfar=zfar,max_y=ymax,min_y=ymin,max_x=xmax,min_x=xmin)
+        cameras = FoVPerspectiveCameras(device=device, R=R, T=T, znear=znear,zfar=zfar,)
+        raster_settings = PointsRasterizationSettings(
+            image_size=(h, w),
+            radius=float(splatting_radius),
+            points_per_pixel=splatting_points_per_pixel,
+            bin_size=None, #0 naive, None:heuristic
+            max_points_per_bin = 100000 #default 10000
+        )
+        rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
+        compositor = AlphaCompositor(background_color=(0, 0, 0))
+        if return_mask:
+            fragments = rasterizer(point_cloud, )
+
+            # Construct weights based on the distance of a point to the true point.
+            # However, this could be done differently: e.g. predicted as opposed
+            # to a function of the weights.
+            r = rasterizer.raster_settings.radius
+
+            dists2 = fragments.dists.permute(0, 3, 1, 2)
+            weights = 1 - dists2 / (r * r)
+            images = compositor(
+                fragments.idx.long().permute(0, 3, 1, 2),
+                weights,
+                point_cloud.features_packed().permute(1, 0),
+            )
+            # permute so image comes at the end
+            images = images.permute(0, 2, 3, 1)
+            #TODO: fetch_mask from fragment
+            # 结束计时
+            end_time = time.time()
+            # 计算执行时间
+            elapsed_time = end_time - start_time
+            print(f"object-only:{object_only} \n 代码执行时间: {elapsed_time} 秒")
+            rendered_image = images[0, ..., :3].cpu().numpy().astype(np.uint8)
+            rendered_mask = torch.any((fragments.idx[0][:,:].sum(dim=-1,keepdim=True)!=-30),dim=-1)
+            rendered_mask = rendered_mask.cpu().numpy().astype(np.uint8)*255
+            return rendered_image , rendered_mask
+        else:
+            renderer = PointsRenderer(rasterizer=rasterizer, compositor=compositor)
+            images = renderer(point_cloud)
+
+
+            # 结束计时
+            end_time = time.time()
+            # 计算执行时间
+            elapsed_time = end_time - start_time
+            print(f"object-only:{object_only} \n 代码执行时间: {elapsed_time} 秒")
+            rendered_image = images[0, ..., :3].cpu().numpy().astype(np.uint8)
+
+            return rendered_image
 
 def IntegratedP3DTransRasterBlending(img, depth, transforms, focal_length_x, focal_length_y, mask, object_only=True,
                                      splatting_radius=0.1, splatting_tau=0.1, splatting_points_per_pixel=5,return_mask=True,device=None):

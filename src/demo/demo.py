@@ -1314,7 +1314,7 @@ def create_my_demo_full_3D(runner):
                             minimum=0,
                             maximum=1,
                             step=0.1,
-                            value=0.3,
+                            value=1.0,
                             interactive=True)
                         max_resolution = gr.Slider(label="Resolution", value=768, minimum=428, maximum=1024, step=1)
                         dilate_kernel_size = gr.Slider(
@@ -1337,6 +1337,35 @@ def create_my_demo_full_3D(runner):
                             # tx, ty, tz = 0, 0, 0  # 相对平移量 定义在三维坐标系上
                             # rx, ry, rz = 0, -40, 0  # 旋转角度（度数）
                             # sx, sy, sz = 1, 1, 1  # 缩放比例 >1为缩小
+                            # splatting_radius = 0.015, splatting_tau = 0.0, splatting_points_per_pixel = 30,
+                            splatting_radius = gr.Slider(
+                                label="splatting_radius",
+                                minimum=0,
+                                maximum=1,
+                                step=0.001,
+                                value=0.015,
+                                interactive=True)
+                            splatting_tau = gr.Slider(
+                                label="splatting_radius",
+                                minimum=0,
+                                maximum=1,
+                                step=0.01,
+                                value=0.0,
+                                interactive=True)
+                            splatting_points_per_pixel = gr.Slider(
+                                label="splatting_radius",
+                                minimum=100,
+                                maximum=1,
+                                step=2,
+                                value=30,
+                                interactive=True)
+                            focal_length = gr.Slider(
+                                label="focal_length",
+                                minimum=10000,
+                                maximum=1,
+                                step=10,
+                                value=550,
+                                interactive=True)
                             sx = gr.Slider(
                                 label="sx:x axis scaleing factor",
                                 minimum=0,
@@ -1468,10 +1497,10 @@ def create_my_demo_full_3D(runner):
         run_button.click(fn=runner,
                          inputs=[original_image, mask, prompt, INP_prompt, seed, guidance_scale, num_step, max_resolution,mode,dilate_kernel_size,
                                  start_step,tx,ty,tz,rx,ry,rz,sx,sy,sz,mask_ref,eta,use_mask_expansion,standard_drawing,contrast_beta,exp_mask_type,strong_inpaint,cross_enhance,
-                                 mask_threshold,mask_threshold_target,blending_alpha], outputs=[output_edit ,output ,noised_img ,INP_Mask,EXP_Mask,EXP_Mask_2,retain_region,depth_map])
+                                 mask_threshold,mask_threshold_target,blending_alpha,splatting_radius,splatting_tau,splatting_points_per_pixel,focal_length], outputs=[output_edit ,output ,noised_img ,INP_Mask,EXP_Mask,EXP_Mask_2,retain_region,depth_map])
         clear_button.click(fn=fun_clear,
-                           inputs=[original_image, global_points, global_point_label, selected_points, mask,mask_ref,tx,ty,tz,rx,ry,rz,sx,sy,sz,
+                           inputs=[original_image, global_points, global_point_label, selected_points, mask,mask_ref,tx,ty,tz,rx,ry,rz,sx,sy,sz,splatting_radius,splatting_tau,splatting_points_per_pixel,focal_length,
                                    img_draw_box, output, output_edit, noised_img,INP_Mask,EXP_Mask,img_ref,EXP_Mask_2,retain_region],
-                           outputs=[original_image, global_points, global_point_label, selected_points, mask,mask_ref,tx,ty,tz,rx,ry,rz,sx,sy,sz,
+                           outputs=[original_image, global_points, global_point_label, selected_points, mask,mask_ref,tx,ty,tz,rx,ry,rz,sx,sy,sz,splatting_radius,splatting_tau,splatting_points_per_pixel,focal_length,
                                     img_draw_box, output, output_edit , noised_img,INP_Mask, EXP_Mask,img_ref,EXP_Mask_2,retain_region ])
     return demo

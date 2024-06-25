@@ -61,7 +61,9 @@ pip install dlib==19.14.0
 
 #Besides you need to install pytorch-3d yourself.
 conda install -c fvcore -c iopath -c conda-forge fvcore iopath
+# for cuda 11.7
 conda install https://anaconda.org/pytorch3d/pytorch3d/0.7.5/download/linux-64/pytorch3d-0.7.5-py39_cu117_pyt201.tar.bz2
+# for cuda 12.1
 conda install  https://anaconda.org/pytorch3d/pytorch3d/0.7.5/download/linux-64/pytorch3d-0.7.5-py39_cu121_pyt210.tar.bz2
 ```
 

@@ -2,6 +2,7 @@ from src.models.dragondiff import DragonPipeline
 from src.utils.utils import resize_numpy_image, split_ldm, process_move, process_drag_face, process_drag, process_appearance, process_paste
 from src.utils.inversion import DDIMInversion
 from src.utils.geometric_utils import Integrated3DTransformAndInpaint
+from src.utils.geo_utils import IntegratedP3DTransRasterBlendingFull
 import os
 import cv2
 from pytorch_lightning import seed_everything
@@ -753,7 +754,8 @@ class ClawerModels(StableDiffusionPipeline):
 
 
     def move_and_inpaint_with_expansion_mask_3D(self, image, mask,depth_map, transforms, FX, FY,object_only=True,inpainter=None, mode=None,
-                                             dilate_kernel_size=15, inp_prompt=None,target_mask=None,blending_alpha=0.5):
+                                             dilate_kernel_size=15, inp_prompt=None,target_mask=None,splatting_radius = 0.015,
+                                            splatting_tau = 0.0,splatting_points_per_pixel = 30):
 
         if isinstance(image, Image.Image):
             image = np.array(image)
@@ -768,9 +770,10 @@ class ClawerModels(StableDiffusionPipeline):
             target_mask = cv2.cvtColor(target_mask, cv2.COLOR_BGR2GRAY)
             # target_mask =target_mask > 128
 
-        # mask = mask.astype(bool)
-        # target_mask = target_mask.astype(bool)
-        transformed_image_target_only, sparse_transformed_target_mask, transformed_depth = Integrated3DTransformAndInpaint(image,depth_map,
+        mask = mask.astype(bool)
+        target_mask = target_mask.astype(bool)
+        """ OLD VERSION
+                transformed_image_target_only, sparse_transformed_target_mask, transformed_depth = Integrated3DTransformAndInpaint(image,depth_map,
                                                                                                                transforms,
                                                                                                                FX, FY,
                                                                                                                target_mask,object_only,
@@ -834,8 +837,48 @@ class ClawerModels(StableDiffusionPipeline):
         retain_mask =  dict()
         retain_mask['obj_region'] = closed_target
         retain_mask['ori_expansion'] = mask
+        """
+        transformed_image, transformed_mask = IntegratedP3DTransRasterBlendingFull(image, depth_map, transforms, FX, FY,
+                                                                               target_mask, object_only,
+                                                                               splatting_radius=splatting_radius,
+                                                                               splatting_tau=splatting_tau,
+                                                                               splatting_points_per_pixel=splatting_points_per_pixel,
+                                                                               return_mask=True,
+                                                                               device=self.device)
 
-        return final_image, image_with_hole, closed_target , retain_mask
+
+        #mask bool
+        # MORPH_OPEN transformed target mask to suppress noise
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
+        transformed_mask =  cv2.morphologyEx(transformed_mask, cv2.MORPH_OPEN, kernel)
+        transformed_mask = (transformed_mask > 128).astype(bool)
+        repair_mask = (mask & ~transformed_mask)
+        ori_image_back_ground = np.where(mask[:, :, None], 0, image).astype(np.uint8)
+        new_image = np.where(transformed_mask[:, :, None], transformed_image, ori_image_back_ground)#with repair area to be black
+        image_with_hole = new_image
+        coarse_repaired = inpainter(Image.fromarray(new_image), Image.fromarray(repair_mask.astype(np.uint8)*255))#lama inpainting filling the black regions
+
+        to_inpaint_img = coarse_repaired
+
+        if mode == 1:
+            semantic_repaired = to_inpaint_img
+        elif mode == 2:
+            inpaint_mask = Image.fromarray(repair_mask.astype(np.uint8)*255)
+            semantic_repaired = self.sd_inpainter(prompt=inp_prompt, image=to_inpaint_img, mask_image=inpaint_mask).images[0]
+
+        if semantic_repaired.size != to_inpaint_img.size:
+            print(f'inpainted image {semantic_repaired.size} -> original size {to_inpaint_img.size}')
+            semantic_repaired = semantic_repaired.resize(to_inpaint_img.size)
+            #mask retain in region only repairing
+            retain_mask = ~repair_mask
+            final_image = np.where(retain_mask[:, :, None], coarse_repaired, semantic_repaired)
+
+        #mask retain
+        retain_mask =  dict()
+        retain_mask['obj_region'] = transformed_mask
+        retain_mask['ori_expansion'] = mask
+
+        return final_image, image_with_hole, transformed_mask , retain_mask
 
 
     def move_and_inpaint_with_expansion_mask(self, image, mask, dx, dy,inpainter=None,mode=None,dilate_kernel_size=15,inp_prompt=None,
@@ -1160,16 +1203,34 @@ class ClawerModels(StableDiffusionPipeline):
 
 
         return [img_preprocess], [final_im] ,[noised_img],[inpaint_mask]#iterable image for gallery
+
+    def get_depth_V2(self, image_raw,base_depth=0.1,min_z=10,max_z=255):
+        # h, w = image_raw.shape[:2]
+        #raw_img = cv2.imread('your/image/path') #RGB img is enough ndarray
+        depth= self.depth_anything.infer_image(image_raw) #ndarray H W back
+        # depth = F.interpolate(depth[None], (h, w), mode='bilinear', align_corners=False)[0, 0]
+
+        # GeoDiffuser Processor
+        # depth = depth.max() - depth  # Negating depth as relative depth estimators assign high values to close objects. You can also try 1/depth (inverse depth, but we found this to work better prima facie)
+        # depth = depth + depth.max() * base_depth  # This helps in reducing depth smearing where translate_factor is between 0 to 1.
+        # depth = (depth - depth.min()) / (depth.max() - depth.min()) * 255  # Normalizes from 0-1.
+        depth = depth.max() - depth  # Negating depth as relative depth estimators assign high values to close objects. You can also try 1/depth (inverse depth, but we found this to work better prima facie)
+        depth = depth + depth.max() * base_depth  # This helps in reducing depth smearing where translate_factor is between 0 to 1.
+        # depth = (depth - depth.min()) / (depth.max() - depth.min())  # Normalizes from 0-1.
+        # modified by clawer
+        depth = (depth - depth.min()) / (depth.max() - depth.min()) * (max_z - min_z) + min_z
+        return depth
+
     def get_depth(self,image_raw):
         h, w = image_raw.shape[:2]
         image = image_raw / 255
         image = self.transform({'image': image})['image']
         # Reshape transformed image to (H, W, C) for plotting
-        image_plot = np.transpose(image, (1, 2, 0))
+        # image_plot = np.transpose(image, (1, 2, 0))
         image = torch.from_numpy(image).unsqueeze(0).to(self.device)
         base_depth = 0.1
-        depth_unit = 255
-        EPISILON = 1e-8
+        # depth_unit = 255
+        # EPISILON = 1e-8
         with torch.no_grad():
             depth = self.depth_anything(image)
         depth = F.interpolate(depth[None], (h, w), mode='bilinear', align_corners=False)[0, 0]
@@ -1181,7 +1242,7 @@ class ClawerModels(StableDiffusionPipeline):
     def run_my_Baseline_full_3D(self, original_image, mask, prompt,INP_prompt,
                         seed, guidance_scale, num_step, max_resolution, mode, dilate_kernel_size, start_step,tx,ty,tz,rx,ry,rz,sx,sy,sz, mask_ref = None, eta=0, use_mask_expansion=True,
                         standard_drawing=True,contrast_beta=1.67,exp_mask_type=0,strong_inpaint=True,cross_enhance=False,
-                             mask_threshold=0.1,mask_threshold_target=0.1,blending_alpha=0.5,
+                             mask_threshold=0.1,mask_threshold_target=0.1,blending_alpha=0.5,splatting_radius=0.015,splatting_tau = 0.0,splatting_points_per_pixel = 30,focal_length=1080,
                         ):
         exp_mask_target = ['INV','FOR','BOTH']
         target_mask_type = exp_mask_target[int(exp_mask_type)]
@@ -1192,15 +1253,23 @@ class ClawerModels(StableDiffusionPipeline):
         img = original_image
         img, input_scale = resize_numpy_image(img, max_resolution * max_resolution)
 
-        depth = self.get_depth(img)
-        depth_map = (depth / 255 + 0.3) * 255
+        # depth = self.get_depth(img)
+        depth = self.get_depth_V2(img,base_depth = 0.1,max_z = 255,min_z = 20)
+        depth_plot = ((depth-depth.min())/(depth.max()-depth.min())*255).astype(np.uint8)
+        depth_plot = np.repeat(depth_plot[..., np.newaxis], 3, axis=-1)
+        depth_plot = Image.fromarray(depth_plot)
+        depth_map = depth
+
 
         print(img.shape) #768
         print(input_scale)
         FINAL_WIDTH = img.shape[1]
         FINAL_HEIGHT = img.shape[0]
-        FX = FINAL_WIDTH * 0.6
-        FY = FINAL_HEIGHT * 0.6
+        # FX = FINAL_WIDTH * 0.6
+        # FY = FINAL_HEIGHT * 0.6
+        F = focal_length
+        FX = F
+        FY = F
 
         if standard_drawing: #box only input
             mask_to_use = mask
@@ -1242,7 +1311,9 @@ class ClawerModels(StableDiffusionPipeline):
         # copy-paste-inpaint to get initial img
         # if strong_inpaint:
         img_preprocess, inpaint_mask, shifted_mask, retain_mask = self.move_and_inpaint_with_expansion_mask_3D(img, expand_mask,depth_map, transforms, FX,FY,True,
-                                                                                                               self.inpainter,mode,dilate_kernel_size,INP_prompt,target_mask,blending_alpha=blending_alpha)
+                                                                                                               self.inpainter,mode,dilate_kernel_size,INP_prompt,target_mask,splatting_radius,
+                                                                                                               splatting_tau,splatting_points_per_pixel)
+
         # else:
         #     img_preprocess,inpaint_mask,shifted_mask = self.move_and_inpaint_with_expansion_mask(img, expand_mask, dx, dy,self.inpainter,mode,dilate_kernel_size,INP_prompt,resize_scale,rotation_angle,flip_horizontal,flip_vertical)
         #     retain_mask = None
@@ -1268,7 +1339,7 @@ class ClawerModels(StableDiffusionPipeline):
                 roi_expansion=True,mask_threshold=mask_threshold_target, post_process='hard',mask=shifted_mask,target_mask_type=target_mask_type,
                 retain_mask = retain_mask, dilate_kernel_size=dilate_kernel_size,blending_alpha=blending_alpha
             )
-        return [img_preprocess], [final_im] ,[noised_img],[inpaint_mask],[expand_mask],[candidate_mask],[retain_region],[depth]#iterable image for gallery
+        return [img_preprocess], [final_im] ,[noised_img],[inpaint_mask],[expand_mask],[candidate_mask],[retain_region],[depth_plot]#iterable image for gallery
     def run_my_Baseline_full(self, original_image, mask, prompt,INP_prompt,
                         seed, selected_points, guidance_scale, num_step, max_resolution, mode, dilate_kernel_size, start_step, mask_ref = None, eta=0, use_mask_expansion=True,
                         standard_drawing=True,contrast_beta=1.67,exp_mask_type=0,resize_scale=1.0,rotation_angle=None,strong_inpaint=True,flip_horizontal=False, flip_vertical=False,cross_enhance=False,
@@ -2102,14 +2173,16 @@ class ClawerModels(StableDiffusionPipeline):
                 before_obj_region = retain_mask['obj_region']
 
                 retain_region_mask = ~(~(source_expansion | target_expansion) | before_obj_region)
+                retain_region_mask = source_expansion | target_expansion
                 # print(retain_region_mask)
-                self.view(retain_region_mask.astype(np.uint8) * 255, name="/data/Hszhu/DragonDiffusion/retain_region_mask")
+                # self.view(retain_region_mask.astype(np.uint8) * 255, name="/data/Hszhu/DragonDiffusion/retain_region_mask")
 
                 #blend with dilation like BrushNet
                 retain_region = self.dilate_mask(retain_region_mask.astype(np.uint8), dilate_factor=dilate_kernel_size)[:,:,None]
                 # retain_region = retain_region_mask.astype(np.uint8)[:,:,None]
                 # print(retain_region.shape)
                 input_image = np.array(input_image)
+                ori_final_im = final_im
                 final_im = np.array(final_im)
                 pixel_wise_alpha = retain_region * blending_alpha
                 final_im = self.alpha_blend(final_im,input_image,pixel_wise_alpha)
@@ -2121,7 +2194,7 @@ class ClawerModels(StableDiffusionPipeline):
 
 
 
-                return final_im, noised_image, candidate_mask, retain_region[:,:,0] * 255
+                return ori_final_im, noised_image, candidate_mask, retain_region[:,:,0] * 255
 
 
 

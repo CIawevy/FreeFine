@@ -12,6 +12,7 @@ from src.utils.attention import AttentionStore,register_attention_control,Mask_E
 import gradio as gr
 from depth_anything.dpt import DepthAnything
 from depth_anything.util.transform import Resize, NormalizeImage, PrepareForNet
+from depth_anything_v2.dpt import DepthAnythingV2
 from torchvision.transforms import Compose
 from diffusers import DDIMScheduler
 from diffusers import StableDiffusionPipeline, DDIMInverseScheduler, AutoencoderKL, DDIMScheduler,DDIMPipeline,StableDiffusionInpaintPipeline
@@ -32,29 +33,43 @@ sd_inpainter = StableDiffusionInpaintPipeline.from_pretrained(
 sd_inpainter.enable_attention_slicing()
 
 
+# model_configs = {
+#         'vitl': {'encoder': 'vitl', 'features': 256, 'out_channels': [256, 512, 1024, 1024]},
+#         'vitb': {'encoder': 'vitb', 'features': 128, 'out_channels': [96, 192, 384, 768]},
+#         'vits': {'encoder': 'vits', 'features': 64, 'out_channels': [48, 96, 192, 384]}
+#     }
+#
+# encoder = 'vits'  # or 'vitb', 'vits'
+# depth_anything = DepthAnything(model_configs[encoder])
+# depth_anything.load_state_dict(torch.load(f'/data/Hszhu/prompt-to-prompt/depth-anything/depth_anything_{encoder}14.pth'))
+# depth_anything.to(device).eval()
+# transform = Compose([
+#     Resize(
+#         width=518,
+#         height=518,
+#         resize_target=False,
+#         keep_aspect_ratio=True,
+#         ensure_multiple_of=14,
+#         resize_method='lower_bound',
+#         image_interpolation_method=cv2.INTER_CUBIC,
+#     ),
+#     NormalizeImage(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+#     PrepareForNet(),
+# ])
+# take depth-anything-v2-large as an example
 model_configs = {
-        'vitl': {'encoder': 'vitl', 'features': 256, 'out_channels': [256, 512, 1024, 1024]},
-        'vitb': {'encoder': 'vitb', 'features': 128, 'out_channels': [96, 192, 384, 768]},
-        'vits': {'encoder': 'vits', 'features': 64, 'out_channels': [48, 96, 192, 384]}
-    }
+    'vits': {'encoder': 'vits', 'features': 64, 'out_channels': [48, 96, 192, 384]},
+    'vitb': {'encoder': 'vitb', 'features': 128, 'out_channels': [96, 192, 384, 768]},
+    'vitl': {'encoder': 'vitl', 'features': 256, 'out_channels': [256, 512, 1024, 1024]},
+    'vitg': {'encoder': 'vitg', 'features': 384, 'out_channels': [1536, 1536, 1536, 1536]}
+}
 
-encoder = 'vits'  # or 'vitb', 'vits'
-depth_anything = DepthAnything(model_configs[encoder])
-depth_anything.load_state_dict(torch.load(f'/data/Hszhu/prompt-to-prompt/depth-anything/depth_anything_{encoder}14.pth'))
-depth_anything.to(device).eval()
-transform = Compose([
-    Resize(
-        width=518,
-        height=518,
-        resize_target=False,
-        keep_aspect_ratio=True,
-        ensure_multiple_of=14,
-        resize_method='lower_bound',
-        image_interpolation_method=cv2.INTER_CUBIC,
-    ),
-    NormalizeImage(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    PrepareForNet(),
-])
+encoder = 'vits'  # or 'vits', 'vitb', 'vitg'
+
+depth_anything_v2 = DepthAnythingV2(**model_configs[encoder])
+depth_anything_v2.load_state_dict(
+    torch.load(f'/data/Hszhu/prompt-to-prompt/depth-anything/depth_anything_v2_{encoder}.pth', map_location='cpu'))
+depth_anything_v2.to(device).eval()
 
 
 pretrained_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-v1-5/"
@@ -71,8 +86,9 @@ model.inpainter = SimpleLama()
 # model.unet = DragonUNet2DConditionModel.from_pretrained(pretrained_model_path, subfolder="unet", torch_dtype=precision).to(device)
 # model.inpainter = None
 model.sd_inpainter = sd_inpainter
-model.depth_anything = depth_anything
-model.transform = transform
+model.depth_anything = depth_anything_v2
+# model.depth_anything = depth_anything
+# model.transform = transform
 controller = Mask_Expansion_SELF_ATTN()
 controller.contrast_beta = 1.67
 controller.use_contrast = True
