@@ -55,10 +55,6 @@ pip install dlib==19.14.0
 pip install simple-lama-inpainting
 pip install accelerate  
 
-#OR
-pip install -r my_requirements.txt
-pip install dlib==19.14.0
-
 #Besides you need to install pytorch-3d yourself.
 conda install -c fvcore -c iopath -c conda-forge fvcore iopath
 # for cuda 11.7

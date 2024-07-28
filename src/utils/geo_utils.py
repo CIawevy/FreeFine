@@ -2,6 +2,7 @@ import numpy as np
 import time
 import cv2
 import torch
+import matplotlib.pyplot as plt
 from pytorch3d.renderer import (
     PointsRasterizationSettings, PointsRenderer, PointsRasterizer,
     AlphaCompositor, NormWeightedCompositor, FoVPerspectiveCameras
@@ -21,7 +22,323 @@ from pytorch3d.renderer import (
 )
 from pytorch3d.renderer import compositing
 from pytorch3d.renderer import PerspectiveCameras, camera_conversions
+import torch
+import torch.nn.functional as F
+import numpy as np
+import torch.nn as nn
+import torch
+import torch.nn.functional as F
+from queue import PriorityQueue
 
+import torch
+
+
+def calculate_cosine_similarity_between_batches(features, has_reference_image=False, cos_threshold=0.8):
+    batch, channels, height, width = features.size()
+
+    # 将特征展平为 (batch, L, C)
+    features_flat = features.view(batch, channels, height * width).transpose(1, 2)
+
+    # 归一化特征向量
+    norms = features_flat.norm(dim=2, keepdim=True) + 1e-8  # 防止除以零
+    normalized_features = features_flat / norms
+
+    # 编辑图像特征和参考图像特征
+    edit_features = normalized_features[0]
+    ref_features = normalized_features[1]
+
+    # 计算编辑图像每个位置与参考图像每个位置的余弦相似度
+    cosine_similarity = torch.matmul(edit_features, ref_features.transpose(0, 1))  # (height * width, height * width)
+
+    # 处理相似度阈值
+    max_sim, max_indices = torch.max(cosine_similarity, dim=1)
+
+    # 初始化输出张量
+    # final_max_indices = torch.zeros((batch, height, width, 4), dtype=torch.long)
+    final_max_indices = torch.empty((height, width, 2), dtype=torch.long).to(features.device)
+
+    for h in range(height):
+        for w in range(width):
+            hw = h * width + w
+            max_ref_hw = max_indices[hw]
+            max_ref_h = max_ref_hw // width
+            max_ref_w = max_ref_hw % width
+            max_sim_value = max_sim[hw]
+
+            # 应用相似度阈值
+            if max_sim_value < cos_threshold:
+                max_ref_h = -1
+                max_ref_w = -1
+                scaled_cos_sim = -1
+            else:
+                scaled_cos_sim = max_sim_value
+
+            final_max_indices[h, w] = torch.tensor([max_ref_h, max_ref_w], dtype=features.dtype)
+            # final_max_indices[h, w] = torch.tensor([max_ref_h, max_ref_w, scaled_cos_sim], dtype=features.dtype)
+            # final_max_indices[b, h, w] = torch.tensor([max_b, max_h, max_w, cos_sim * 1000])
+
+    return final_max_indices
+
+
+
+
+def calculate_cosine_similarity_between_batches_ori(features):
+    batch, channels, height, width = features.size()
+    features = features.view(batch, channels, -1).transpose(1, 2).view(batch, -1, channels) #B,L,C
+    norms = features.norm(dim=2, keepdim=True)
+    normalized_features = features / norms
+
+    normalized_features_expanded = normalized_features.unsqueeze(0)
+    normalized_features_tiled = normalized_features.unsqueeze(1)
+
+    # すべてのバッチペアの間でコサイン類似度を計算します。
+    cosine_similarity = torch.matmul(
+        normalized_features_expanded, normalized_features_tiled.transpose(2, 3)
+    ).squeeze()
+
+    if args.reference_image is not None:
+        # リファレンスイメージ以外との類似度を除去します。
+        batch_indices = torch.arange(batch).view(batch, 1, 1)
+        cosine_similarity[batch_indices, batch_indices, :] = -1
+        cosine_similarity[1:batch, 1:batch, :] = -1
+    else:
+        # 自身との類似度を除去します。
+        batch_indices = torch.arange(batch).view(batch, 1, 1)
+        cosine_similarity[batch_indices, batch_indices, :] = -1
+
+    print("cosine_similarity shape", cosine_similarity.shape)
+    # 類似度が閾値以上の要素のインデックスを取得します。
+    max_sim, max_indices = torch.max(cosine_similarity, dim=1)
+    print("max_sim, max_indices shape 1", max_sim.shape, max_indices.shape)
+    print("max_sim, max_indices", max_sim, max_indices)
+
+    max_sim2, max_indices2 = torch.max(max_sim, dim=1)
+    print("max_sim2, max_indices2 shape 2 ", max_sim2.shape, max_indices2.shape)
+    print("max_sim2, max_indices2", max_sim2, max_indices2)
+
+    # max_indices : (batch, width * height, width * height)
+    # max_indices2 : (batch, width * height)
+
+    # final_max_indeces : (batch, height, width, 3) from max_indices and max_indices2
+    final_max_indices = torch.zeros((batch, height, width, 4), dtype=torch.long)
+
+    for b in range(batch):
+        for hw in range(height * width):
+
+            h = hw // width
+            w = hw % width
+            max_hw = max_indices2[b, hw]
+            max_h = max_hw // width
+            max_w = max_hw % width
+            max_b = max_indices[b, hw, max_hw]
+
+            cos_sim = max_sim[max_b, max_h, max_w]
+
+            if cos_sim < cos_threshold:
+                max_b = -1
+                max_h = -1
+                max_w = -1
+
+            if args.reference_image is not None and b == 0:
+                max_b = -1
+                max_h = -1
+                max_w = -1
+
+            final_max_indices[b, h, w] = torch.tensor([max_b, max_h, max_w, cos_sim * 1000])
+
+    # max_indices_b = max_indices[
+    # max_sim, max_indices = torch.max(max_sim, dim=1)
+    # print("max_sim, max_indices shape 3", max_sim.shape, max_indices.shape)
+    # print("max_sim, max_indices",  max_sim, max_indices)
+
+    # 閾値以上のものだけを残します。
+    # max_indices[max_sim < cos_threshold] = -1  # 閾値未満のインデックスは-1に設定
+
+    # バッチ内のインデックスを高さと幅のインデックスに変換します。
+    # max_indices_batch = max_indices
+    # max_indices_h = max_indices2 // width
+    # max_indices_w = max_indices2 % width
+    # print("max_indices_batch.shape, max_indices_h.shape, max_indices_w.shape", max_indices_batch.shape, max_indices_h.shape, max_indices_w.shape)
+
+    # バッチインデックスも含めた結果を返します。
+    # max_indices_batch = max_indices #  // (height * width)
+    # max_indices_h = max_indices_batch // width
+    # max_indices_w = max_indices_batch % width
+
+    print("final_max_indices", final_max_indices)
+    print("final_max_indices shape", final_max_indices.shape)
+    return final_max_indices
+def tensor_inpaint_fmm(tensor_image, tensor_mask):
+    """
+    使用快速行进法对Tensor图像进行修复。
+
+    :param tensor_image: 输入图像的Tensor，形状为(B, C, H, W)
+    :param tensor_mask: 修复区域掩码的Tensor，形状为(H, W)
+    :return: 修复后的图像Tensor，形状为(B, C, H, W)
+    """
+    assert len(tensor_image.shape) == 4, "tensor_image的形状应为(B, C, H, W)"
+    assert len(tensor_mask.shape) == 2, "tensor_mask的形状应为(H, W)"
+
+    B, C, H, W = tensor_image.shape
+
+    # 初始化修复区域
+    inpainted_image = tensor_image.clone()
+    mask = tensor_mask.clone().bool()
+
+    # 获取修复区域的坐标
+    inpaint_coords = torch.nonzero(mask, as_tuple=False)
+
+    # 定义邻域
+    neighbors = torch.tensor([[-1, 0], [1, 0], [0, -1], [0, 1]], device=tensor_image.device)
+
+    # 创建优先级队列
+    pq = PriorityQueue()
+
+    # 初始化优先级队列，计算边界像素的优先级
+    for y, x in inpaint_coords:
+        for dy, dx in neighbors:
+            ny, nx = y + dy, x + dx
+            if 0 <= ny < H and 0 <= nx < W and not mask[ny, nx]:
+                distance = torch.sqrt(dy.float() ** 2 + dx.float() ** 2)
+                pq.put((distance.item(), (y.item(), x.item())))
+                break
+
+    # 使用快速行进法填充修复区域
+    while not pq.empty():
+        _, (y, x) = pq.get()
+        if not mask[y, x]:
+            continue
+
+        # 获取邻域像素的值
+        values = []
+        for dy, dx in neighbors:
+            ny, nx = y + dy, x + dx
+            if 0 <= ny < H and 0 <= nx < W and not mask[ny, nx]:
+                values.append(inpainted_image[:, :, ny, nx])
+
+        if values:
+            # 计算平均值进行填充
+            values = torch.stack(values, dim=0)
+            inpainted_image[:, :, y, x] = values.mean(dim=0)
+            mask[y, x] = False
+
+            # 将新填充的像素加入优先级队列
+            for dy, dx in neighbors:
+                ny, nx = y + dy, x + dx
+                if 0 <= ny < H and 0 <= nx < W and mask[ny, nx]:
+                    distance = torch.sqrt(dy.float() ** 2 + dx.float() ** 2)
+                    pq.put((distance.item(), (ny.item(), nx.item())))
+
+    return inpainted_image
+
+
+class PartialConvInterpolation(nn.Module):
+    def __init__(self, kernel_size, channels, feature_weight):
+        super(PartialConvInterpolation, self).__init__()
+        self.kernel_size = kernel_size
+        self.channels = channels
+
+        # 手动输入的特征卷积权重
+        self.feature_weight = nn.Parameter(
+            torch.tensor(feature_weight, dtype=torch.float32).unsqueeze(0).unsqueeze(0).repeat(channels, 1, 1, 1),
+            requires_grad=False)
+
+        # 掩码卷积的权重为全1
+        self.mask_weight = nn.Parameter(torch.ones(self.channels, 1, kernel_size, kernel_size), requires_grad=False)
+
+    def temp_view(self, mask, title='Mask', name=None):
+        """
+        显示输入的mask图像
+
+        参数:
+        mask (torch.Tensor): 要显示的mask图像，类型应为torch.bool或torch.float32
+        title (str): 图像标题
+        """
+        # 确保输入的mask是float类型以便于显示
+        if isinstance(mask, np.ndarray):
+            mask_new = mask
+        else:
+            mask_new = mask.float()
+            mask_new = mask_new.detach().cpu()
+            mask_new = mask_new.numpy()
+
+        plt.figure(figsize=(6, 6))
+        plt.imshow(mask_new, cmap='gray')
+        plt.title(title)
+        plt.axis('off')  # 去掉坐标轴
+        # plt.savefig(name+'.png')
+        plt.show()
+
+    def forward(self, input, mask,ref_mask, max_iterations=20):
+        input_masked = input * mask
+        input_conv = input_masked #init
+        ref_mask = (ref_mask>0).float()
+        for _ in range(max_iterations):
+
+            input_conv = F.conv2d(input_conv, self.feature_weight, padding=self.kernel_size // 2,
+                                  groups=self.channels)
+            mask_conv = F.conv2d(mask, self.mask_weight, padding=self.kernel_size // 2, groups=self.channels)
+            mask_sum = mask_conv.masked_fill(mask_conv == 0, 1.0)
+            output = input_conv / mask_sum
+
+            new_mask = (mask_conv > 0).float()
+            stat = ((new_mask)[0,0] * ref_mask).sum() == ref_mask.sum()
+            if stat or new_mask.equal(mask):
+                break
+            mask = new_mask
+
+        return output
+
+def param2theta(param, w, h):
+    param = np.concatenate([param, np.array([0, 0, 1], dtype=param.dtype)[None]])  # for求逆
+    param = np.linalg.inv(param)
+    theta = np.zeros([2, 3])
+    theta[0, 0] = param[0, 0]
+    theta[0, 1] = param[0, 1] * h / w
+    theta[0, 2] = param[0, 2] * 2 / w + theta[0, 0] + theta[0, 1] - 1
+    theta[1, 0] = param[1, 0] * w / h
+    theta[1, 1] = param[1, 1]
+    theta[1, 2] = param[1, 2] * 2 / h + theta[1, 0] + theta[1, 1] - 1
+    return theta
+
+def wrapAffine_tensor( tensor, theta, dsize, mode='bilinear', padding_mode='zeros', align_corners=False,
+                      border_value=0):
+    """
+    对给定的张量进行仿射变换，仿照 cv2.warpAffine 的功能。
+
+    参数：
+    - tensor: 要变换的张量，形状为 (C, H, W) 或 (H, W) 或(N,C,H,W)
+    - theta: 2x3 变换矩阵，形状为 (2, 3)
+    - dsize: 输出尺寸 (width, height)
+    - mode: 插值方法，可选 'bilinear', 'nearest', 'bicubic'
+    - padding_mode: 边界填充模式，可选 'zeros', 'border', 'reflection'
+    - align_corners: 是否对齐角点，默认为 False
+    - border_value: 填充值
+
+    返回：
+    - transformed_tensor: 变换后的张量，形状与输入张量相同
+    """
+    if tensor.dim() == 2:
+        tensor = tensor.unsqueeze(0).unsqueeze(0)
+    elif tensor.dim() == 3:
+        tensor = tensor.unsqueeze(0)
+    elif tensor.dim() == 4:
+        pass
+
+    # 生成变换的 grid
+    grid = F.affine_grid(theta.unsqueeze(0), [tensor.size(0), tensor.size(1), dsize[1], dsize[0]],
+                         align_corners=align_corners)
+
+    # 进行 grid 采样
+    output = F.grid_sample(tensor, grid, mode=mode, padding_mode=padding_mode, align_corners=align_corners)
+    transformed_tensor = output.squeeze(0)
+
+    # 使用填充值填充边界
+    if padding_mode == 'zeros' and border_value != 0:
+        mask = (grid.abs() > 1).any(dim=-1, keepdim=True)
+        transformed_tensor[mask] = border_value
+
+    return transformed_tensor
 def get_transformation(tx, ty, tz, rx, ry, rz, sx, sy, sz, device):
     """
     构建PyTorch3D的变换对象，包括平移、旋转和缩放。
@@ -148,7 +465,7 @@ def IntegratedP3DTransRasterBlendingFull(img, depth, transforms, focal_length_x,
         point_cloud = transform_point_cloud(point_cloud, transforms, device)
         #开始计时
         start_time = time.time()
-
+        
 
 
         # construct my R T based on center_shifting
@@ -402,3 +719,18 @@ if __name__ == "__main__":
     plt.imshow(rendered_image)
     plt.title('Rendered Point Cloud')
     plt.show()
+
+
+
+
+# while not fully transformed:
+#     if 2D:
+#         #move/rotate/resize some degree
+#     elif 3D:
+#         #1.calculate partial 3D transform matrix from fully transformed matrix
+#         #2.apply and transform some degree
+#         #3.reproject to 2D , also change some degree
+#         #4. optimization and complete small unseen parts #!!!!TODO: Need Design , how to use prior here
+#         #5. grad backward to bottleneck feature
+#         #5 forward again
+

@@ -3,7 +3,7 @@ from src.demo.download import download_all
 import os
 os.environ["CUDA_VISIBLE_DEVICES"]="4"
 from simple_lama_inpainting import SimpleLama
-from src.demo.demo import create_my_demo,create_my_demo_full,create_my_demo_full_3D
+from src.demo.demo import create_my_demo,create_my_demo_full_2D,create_my_demo_full_3D,create_my_demo_full_2D_ctn
 from src.demo.model import ClawerModels
 from src.unet.unet_2d_condition import DragonUNet2DConditionModel
 import torch
@@ -106,9 +106,10 @@ with gr.Blocks(css='style.css') as demo:
         # with gr.TabItem('Simple Copy-Paste & Inpainting'):
             # create_my_demo(model.run_my_Baseline)
         with gr.TabItem('Expansion Mask geometric editing'):
-            create_my_demo_full(model.run_my_Baseline_full)
+            create_my_demo_full_2D(model.run_my_Baseline_full)
         with gr.TabItem('3D-Expansion Mask geometric editing'):
             create_my_demo_full_3D(model.run_my_Baseline_full_3D)
+
 
 demo.queue(concurrency_count=3, max_size=20)
 # demo.launch(server_name="0.0.0.0")

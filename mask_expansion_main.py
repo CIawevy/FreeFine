@@ -1,5 +1,6 @@
 from src.demo.download import download_all
 # download_all()
+from diffusers import  UNet2DConditionModel
 import os
 os.environ["CUDA_VISIBLE_DEVICES"]="4"
 from simple_lama_inpainting import SimpleLama

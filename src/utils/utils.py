@@ -4,7 +4,7 @@ from basicsr.utils import img2tensor
 import torch
 import torch.nn.functional as F
 
-def resize_numpy_image(image, max_resolution=768 * 768, resize_short_edge=None):
+def resize_numpy_image(image, max_resolution=768 * 768, resize_short_edge=None,mask_input=False):
     h, w = image.shape[:2]
     w_org = image.shape[1]
     if resize_short_edge is not None:
@@ -14,7 +14,10 @@ def resize_numpy_image(image, max_resolution=768 * 768, resize_short_edge=None):
         k = k**0.5
     h = int(np.round(h * k / 64)) * 64
     w = int(np.round(w * k / 64)) * 64
-    image = cv2.resize(image, (w, h), interpolation=cv2.INTER_LANCZOS4)
+    if not mask_input:
+        image = cv2.resize(image, (w, h), interpolation=cv2.INTER_LANCZOS4)
+    else:
+        image = cv2.resize(image, (w, h), interpolation=cv2.INTER_NEAREST)
     scale = w/w_org
     return image, scale
 

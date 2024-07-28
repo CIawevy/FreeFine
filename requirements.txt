@@ -7,3 +7,4 @@ einops
 pytorch_lightning
 omegaconf
 gradio==3.50.2
+numpy==1.26.4
