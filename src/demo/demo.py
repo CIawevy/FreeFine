@@ -1502,7 +1502,7 @@ def create_my_demo_full_3D_magic(runner):
                             minimum=0,
                             maximum=1,
                             step=0.1,
-                            value=1,
+                            value=0,
                             interactive=True)
                         num_step = gr.Slider(
                             label="number of diffusion steps",
@@ -1523,7 +1523,7 @@ def create_my_demo_full_3D_magic(runner):
                             minimum=0,
                             maximum=1000,
                             step=1,
-                            value=10,
+                            value=0,
                             interactive=True)
                         mask_threshold = gr.Slider(
                             label=" mask_threshold",
@@ -1604,7 +1604,7 @@ def create_my_demo_full_3D_magic(runner):
                                 value=0.015,
                                 interactive=True)
                             splatting_tau = gr.Slider(
-                                label="splatting_radius",
+                                label="splatting_tau",
                                 minimum=0,
                                 maximum=1,
                                 step=0.01,
@@ -1619,11 +1619,41 @@ def create_my_demo_full_3D_magic(runner):
                                 interactive=True)
                             focal_length = gr.Slider(
                                 label="focal_length",
-                                minimum=10000,
+                                minimum=0,
                                 maximum=10000,
                                 step=1,
-                                value=550,
+                                value=340,
                                 interactive=True)
+                            feature_injection=gr.Slider(
+                                label="feature_injection",
+                                minimum=0,
+                                maximum=1,
+                                step=1,
+                                value=1,
+                                interactive=True)
+
+                            sim_thr = gr.Slider(
+                                label="sim_thr",
+                                minimum=0,
+                                maximum=1,
+                                step=0.1,
+                                value=0.5,
+                                interactive=True)
+                            use_sdsa = gr.Slider(
+                                label="use_sdsa",
+                                minimum=0,
+                                maximum=1,
+                                step=1,
+                                value=1,
+                                interactive=True)
+                            FI_range = gr.Slider(
+                                label="FI_range",
+                                value=(682, 640),
+                                interactive=False)
+                            DIFT_LAYER_IDX=gr.Slider(
+                                label="DIFT_LAYER_IDX",
+                                value=[0,1,2,3],
+                                interactive=False)
                             sx = gr.Slider(
                                 label="sx:x axis scaleing factor",
                                 minimum=0,
@@ -1657,7 +1687,7 @@ def create_my_demo_full_3D_magic(runner):
                                 minimum=-180,
                                 maximum=180,
                                 step=10,
-                                value=-40,
+                                value=0,
                                 interactive=True)
                             rz = gr.Slider(
                                 label="rz:z axis rotation angle",
@@ -1692,7 +1722,7 @@ def create_my_demo_full_3D_magic(runner):
                                 minimum=0,
                                 maximum=1,
                                 step=0.1,
-                                value=0.2,
+                                value=0.5,
                                 interactive=True)
 
             with gr.Column():
@@ -1700,9 +1730,6 @@ def create_my_demo_full_3D_magic(runner):
                     gr.Markdown("# OUTPUT")
                     mask = gr.Image(source='upload', label="Mask of object", interactive=True, type="numpy")
                     im_w_mask_ref = gr.Image(label="Mask of reference region", interactive=True, type="numpy")
-
-                    gr.Markdown("<h5><center>GenResults</center></h5>")
-                    output = gr.Gallery().style(grid=1, height='auto')
 
                     gr.Markdown("<h5><center>EditResults</center></h5>")
                     output_edit = gr.Gallery().style(grid=1, height='auto')
@@ -1748,17 +1775,11 @@ def create_my_demo_full_3D_magic(runner):
                                  start_step, tx, ty, tz, rx, ry, rz, sx, sy, sz, mask_ref, eta, use_mask_expansion,
                                  standard_drawing, contrast_beta, strong_inpaint, cross_enhance,
                                  mask_threshold, mask_threshold_target, blending_alpha, splatting_radius, splatting_tau,
-                                 splatting_points_per_pixel, focal_length, end_step],
-                         outputs=[output_edit,refer_edit, INP_IMG, INP_Mask, TGT_MSK, depth_map])
+                                 splatting_points_per_pixel, focal_length,end_step,feature_injection,FI_range,sim_thr,DIFT_LAYER_IDX,use_sdsa ],
+                         outputs=[output_edit, refer_edit,INP_IMG, INP_Mask, TGT_MSK, depth_map])
         clear_button.click(fn=fun_clear,
-                           inputs=[original_image, global_points, global_point_label, selected_points, mask, mask_ref,
-                                   tx, ty, tz, rx, ry, rz, sx, sy, sz, splatting_radius, splatting_tau,
-                                   splatting_points_per_pixel, focal_length,refer_edit,
-                                   img_draw_box, output, output_edit, INP_Mask, img_ref, TGT_MSK, INP_IMG],
-                           outputs=[original_image, global_points, global_point_label, selected_points, mask, mask_ref,
-                                    tx, ty, tz, rx, ry, rz, sx, sy, sz, splatting_radius, splatting_tau,
-                                    splatting_points_per_pixel, focal_length,refer_edit,
-                                    img_draw_box, output, output_edit, INP_Mask, img_ref, TGT_MSK, INP_IMG])
+                           inputs=[original_image, mask, prompt, INP_prompt, ],
+                           outputs=[original_image, mask, prompt, INP_prompt, ])
     return demo
 
 def create_my_demo_full_3D(runner):

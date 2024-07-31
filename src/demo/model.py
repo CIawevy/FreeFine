@@ -2894,10 +2894,10 @@ class ClawerModel_v2(StableDiffusionPipeline):
             #                                        foreground_mask=foreground_mask, lr=0.1, lam=1, eta=1.0,
             #                                        refer_latent=refer_latents[i - start_step + 1],
             #                                        h_feature_input=h_feature,)
-            # if i<50 - end_step:
-            #     self.controller.share_attn = use_sdsa  # allow SDSA
-            # else:
-            #     self.controller.share_attn = False
+            if i<50 - end_step:
+                self.controller.share_attn = use_sdsa  # allow SDSA
+            else:
+                self.controller.share_attn = False
                 # h_feature = torch.cat([h_feature] * 2)
             # if guidance_scale > 1.:
             with torch.no_grad():
@@ -3121,6 +3121,8 @@ class ClawerModel_v2(StableDiffusionPipeline):
         #     plt.close()
         return transformed_mask_list
 
+
+
     def move_and_inpaint_with_expansion_mask_3D(self, image, mask, depth_map, transforms, FX, FY, object_only=True,
                                                 inpainter=None, mode=None,
                                                 dilate_kernel_size=15, inp_prompt=None, target_mask=None,
@@ -3156,32 +3158,47 @@ class ClawerModel_v2(StableDiffusionPipeline):
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
         transformed_mask = cv2.morphologyEx(transformed_mask, cv2.MORPH_OPEN, kernel)
         transformed_mask = (transformed_mask > 128).astype(bool)
-        repair_mask = (mask & ~transformed_mask)
+        # repair_mask = (mask & ~transformed_mask)
+        # ori_image_back_ground = np.where(mask[:, :, None], 0, image).astype(np.uint8)
+        # new_image = np.where(transformed_mask[:, :, None], transformed_image,
+        #                      ori_image_back_ground)  # with repair area to be black
+        # image_with_hole = new_image
+        # coarse_repaired = inpainter(Image.fromarray(new_image), Image.fromarray(
+        #     repair_mask.astype(np.uint8) * 255))  # lama inpainting filling the black regions
+        #
+        # to_inpaint_img = coarse_repaired
+        #
+        # if mode == 1:
+        #     semantic_repaired = to_inpaint_img
+        # elif mode == 2:
+        #     inpaint_mask = Image.fromarray(repair_mask.astype(np.uint8) * 255)
+        #     print(f'SD inpainting Processing:')
+        #     semantic_repaired = \
+        #     self.sd_inpainter(prompt=inp_prompt, image=to_inpaint_img, mask_image=inpaint_mask).images[0]
+        #
+        # if semantic_repaired.size != to_inpaint_img.size:
+        #     print(f'inpainted image {semantic_repaired.size} -> original size {to_inpaint_img.size}')
+        #     semantic_repaired = semantic_repaired.resize(to_inpaint_img.size)
+        # # mask retain in region only repairing
+        # retain_mask = ~repair_mask
+        # final_image = np.where(retain_mask[:, :, None], semantic_repaired, semantic_repaired)
+        # final_image = np.where(retain_mask[:, :, None], coarse_repaired, semantic_repaired)
         ori_image_back_ground = np.where(mask[:, :, None], 0, image).astype(np.uint8)
-        new_image = np.where(transformed_mask[:, :, None], transformed_image,
-                             ori_image_back_ground)  # with repair area to be black
-        image_with_hole = new_image
-        coarse_repaired = inpainter(Image.fromarray(new_image), Image.fromarray(
-            repair_mask.astype(np.uint8) * 255))  # lama inpainting filling the black regions
-
+        image_with_hole = ori_image_back_ground
+        coarse_repaired = inpainter(Image.fromarray(ori_image_back_ground), Image.fromarray(
+            mask.astype(np.uint8) * 255))  # lama inpainting filling the black regions
         to_inpaint_img = coarse_repaired
-
         if mode == 1:
             semantic_repaired = to_inpaint_img
         elif mode == 2:
-            inpaint_mask = Image.fromarray(repair_mask.astype(np.uint8) * 255)
+            inpaint_mask = Image.fromarray(mask.astype(np.uint8) * 255)
             print(f'SD inpainting Processing:')
             semantic_repaired = \
-            self.sd_inpainter(prompt=inp_prompt, image=to_inpaint_img, mask_image=inpaint_mask).images[0]
-
+                self.sd_inpainter(prompt=inp_prompt, image=to_inpaint_img, mask_image=inpaint_mask).images[0]
         if semantic_repaired.size != to_inpaint_img.size:
             print(f'inpainted image {semantic_repaired.size} -> original size {to_inpaint_img.size}')
             semantic_repaired = semantic_repaired.resize(to_inpaint_img.size)
-            # mask retain in region only repairing
-            retain_mask = ~repair_mask
-            final_image = np.where(retain_mask[:, :, None], semantic_repaired, semantic_repaired)
-            # final_image = np.where(retain_mask[:, :, None], coarse_repaired, semantic_repaired)
-
+        final_image = np.where(transformed_mask[:, :, None], transformed_image, semantic_repaired)
 
         return final_image, image_with_hole, transformed_mask
 
@@ -3216,6 +3233,14 @@ class ClawerModel_v2(StableDiffusionPipeline):
         print(f'trans {transforms}')
         # select and resize
         print(f'mask shape: {mask.shape}')
+        cv2.imwrite("mask.png",mask)
+        #remove background
+        mask_BG = (mask == 0).astype(bool)
+        image_fg = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)
+        image_fg[mask_BG]=255
+        cv2.imwrite('FG_IMG.png',image_fg)
+
+
         img = original_image
         img, input_scale = resize_numpy_image(img, max_resolution * max_resolution)
 
@@ -4065,8 +4090,8 @@ class ClawerModel_v2(StableDiffusionPipeline):
         print(f'full_h:{full_h};full_w:{full_w}')
         sup_res_h = int(0.5 * full_h)
         sup_res_w = int(0.5 * full_w)
-        dilated_shifted_mask = self.dilate_mask(shifted_mask, dilate_kernel_size) * 255  # dilate for better expansion mask
-        foreground_mask,object_mask = self.prepare_foreground_mask(dilated_shifted_mask,ori_mask,sup_res_w,sup_res_h,init_code_orig)
+        # dilated_shifted_mask = self.dilate_mask(shifted_mask, 5) * 255  # dilate for better expansion mask
+        foreground_mask,object_mask = self.prepare_foreground_mask(shifted_mask,ori_mask,sup_res_w,sup_res_h,init_code_orig)
 
         # h_feature = self.prepare_h_feature(init_code_orig,t,edit_prompt,BG_preservation=False,foreground_mask=foreground_mask,lr=0.1,lam=0.1,eta=1.0)
 

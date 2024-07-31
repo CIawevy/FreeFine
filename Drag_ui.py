@@ -1,7 +1,7 @@
 from src.demo.download import download_all
 # download_all()
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="4"
+os.environ["CUDA_VISIBLE_DEVICES"]="5"
 from simple_lama_inpainting import SimpleLama
 from src.demo.demo import create_my_demo,create_my_demo_full_2D,create_my_demo_full_3D_magic,create_my_demo_full_2D_ctn
 from src.demo.model import ClawerModels,ClawerModel_v2
@@ -10,8 +10,7 @@ import torch
 import cv2
 from src.utils.attention import AttentionStore,register_attention_control,Mask_Expansion_SELF_ATTN
 import gradio as gr
-from depth_anything.dpt import DepthAnything
-from depth_anything.util.transform import Resize, NormalizeImage, PrepareForNet
+
 from depth_anything_v2.dpt import DepthAnythingV2
 from torchvision.transforms import Compose
 from diffusers import DDIMScheduler
@@ -50,6 +49,7 @@ depth_anything_v2.to(device).eval()
 pretrained_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-v1-5/"
 lora_path = gr.Textbox(value="./lora_tmp", label="LoRA path")
 vae_path = "/data/Hszhu/prompt-to-prompt/sd-vae-ft-mse"
+# vae_path='default'
 #implement from p2p & FPE they have the same scheduler config which is different from official code
 # scheduler = DDIMScheduler(beta_start=0.00085, beta_end=0.012, beta_schedule="scaled_linear", clip_sample=False, set_alpha_to_one=False)
 # model = ClawerModels.from_pretrained(pretrained_model_path,scheduler=scheduler).to(device)
@@ -71,7 +71,7 @@ model.sd_inpainter = sd_inpainter
 model.depth_anything = depth_anything_v2
 # model.depth_anything = depth_anything
 # model.transform = transform
-controller = Mask_Expansion_SELF_ATTN()
+controller = Mask_Expansion_SELF_ATTN(block_size=8,drop_rate=0.7,start_layer=10)
 controller.contrast_beta = 1.67
 controller.use_contrast = True
 model.controller = controller

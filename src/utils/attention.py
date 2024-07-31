@@ -382,21 +382,17 @@ def register_attention_control(model, controller):
             value = self.to_v(encoder_hidden_states)
 
 
-            # TODO:1.share attention condition : SDSA,place_in_unet==UP (decoder)
-            #      2. controller control , different stream
-            #      3. concat
-            #      4. prepare SDSA mask, with dropout for each step
-            #      5. encoder & mid used for mask update on the fly
+            # SDSA Controller
             controller.heads = self.heads
             controller.upcast_attention = self.upcast_attention
             controller.scale = self.scale
             controller.upcast_softmax=self.upcast_softmax
-            if controller.local_edit and is_cross:
-                #mask based cross attetnion
-                hidden_states = controller.local_edit_cross_attention(query, key, value, is_cross, place_in_unet)
-            if place_in_unet in ['up','mid'] and not is_cross and controller.share_attn:
+            if place_in_unet in ['up'] and not is_cross and controller.share_attn:
             # if not is_cross and controller.share_attn:
-                hidden_states = controller.subject_driven_self_attention(query,key,value,is_cross, place_in_unet)
+                hidden_states = controller.mutual_self_attention(query,key,value,is_cross, place_in_unet)
+            elif controller.local_edit and is_cross:
+                hidden_states = controller.modulate_local_cross_attn(query,key,value,is_cross, place_in_unet)
+
             else:
                 query = self.head_to_batch_dim(query)
                 key = self.head_to_batch_dim(key)
@@ -404,7 +400,7 @@ def register_attention_control(model, controller):
 
                 attention_probs = self.get_attention_scores(query, key, attention_mask)
 
-                attention_probs = controller(attention_probs, is_cross, place_in_unet)
+                attention_probs = controller(attention_probs, is_cross, place_in_unet) #layer step mask log
 
                 hidden_states = torch.bmm(attention_probs, value)
                 hidden_states = self.batch_to_head_dim(hidden_states)
@@ -421,7 +417,7 @@ def register_attention_control(model, controller):
             hidden_states = hidden_states / self.rescale_output_factor
 
             #feature injection modulation
-            if place_in_unet in ['up','mid'] and not is_cross and controller.DIFT_FEATURE_INJ:
+            if place_in_unet in ['up'] and not is_cross and controller.DIFT_FEATURE_INJ:
                 hidden_states = controller.feature_injection(hidden_states, is_cross, place_in_unet)
 
             return hidden_states
@@ -603,6 +599,29 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
             key = f"{place_in_unet}_{'self'}"
             self.step_store[key].append(self.get_correlation_mask(attn))
         return attn
+
+    def temp_view(self, mask, title='Mask', name=None):
+        """
+        显示输入的mask图像
+
+        参数:
+        mask (torch.Tensor): 要显示的mask图像，类型应为torch.bool或torch.float32
+        title (str): 图像标题
+        """
+        # 确保输入的mask是float类型以便于显示
+        if isinstance(mask, np.ndarray):
+            mask_new = mask
+        else:
+            mask_new = mask.float()
+            mask_new = mask_new.detach().cpu()
+            mask_new = mask_new.numpy()
+
+        plt.figure(figsize=(6, 6))
+        plt.imshow(mask_new, cmap='gray')
+        plt.title(title)
+        plt.axis('off')  # 去掉坐标轴
+        # plt.savefig(name+'.png')
+        plt.show()
     def view(self,mask, title='Mask'):
         """
         显示输入的mask图像
@@ -688,6 +707,7 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         #which is defined outside this class
         self.step_store = self.get_empty_store()
         self.expansion_mask_store = {}
+        self.expansion_mask_on_the_fly = None
         self.log_mask = False
         self.step_num = 0
         self.model_type = 'Inverse'
@@ -747,30 +767,89 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
 
         return attention_probs
 
-    def get_attention_scores_new(self, query, key, attention_mask=None):
-        #contains Bug
+    def get_local_attention_scores(self, query, key, local_region_mask):
         dtype = query.dtype
-
         if self.upcast_attention:
             query = query.float()
             key = key.float()
 
-        attention_scores = torch.bmm(query, key.transpose(-1, -2))
-        attention_scores *= self.scale
+        baddbmm_input = torch.empty(
+            query.shape[0], query.shape[1], key.shape[1], dtype=query.dtype, device=query.device
+        )
+        beta = 0
+        attention_scores = torch.baddbmm(
+            baddbmm_input,
+            query,
+            key.transpose(-1, -2),
+            beta=beta,
+            alpha=self.scale,
+        )
+        del baddbmm_input
 
         if self.upcast_softmax:
             attention_scores = attention_scores.float()
 
+        #LOCAL CFG MODULATE QK.T
+        #4,8,4224,77
+        #[uncon_e,uncon_r,con_e,con_r]
+        #["","","car",""]
+        local_region_mask[local_region_mask>0] = 1
+        _,L1,L2 = attention_scores.shape
+        attention_scores = attention_scores.view(-1,self.heads,L1,L2)
+        uncon_edit_qk = attention_scores[0].permute(1,2,0)#4227,77,heads
+        con_edit_qk = attention_scores[2].permute(1,2,0)#4227,77,heads
+        local_focus_qk = con_edit_qk * local_region_mask[:,None,None] + uncon_edit_qk * (1-local_region_mask[:,None,None])
+        local_focus_qk = local_focus_qk.permute(2,0,1)
+        attention_scores[2] = local_focus_qk
+        attention_scores = attention_scores.view(-1,L1,L2)
+        del uncon_edit_qk,con_edit_qk,local_focus_qk
+
+
         attention_probs = attention_scores.softmax(dim=-1)
         del attention_scores
-
-        if attention_mask is not None:
-            attention_probs *= attention_mask
 
         attention_probs = attention_probs.to(dtype)
 
         return attention_probs
 
+
+    def process_mask_before_mutual(self,mask,seq):
+        mask[mask>0] = 1
+        # PROCESS MASK
+        h, w = mask.shape
+        d_ratio = int((h * w // seq) ** 0.5)
+        # down sample
+        mask=F.interpolate(mask.unsqueeze(0).unsqueeze(0), size=(h // d_ratio, w // d_ratio),
+                                 mode='nearest').squeeze(0, 1)
+        return mask,d_ratio
+    def post_process_attn_mask(self,mask):
+        mask.masked_fill_(mask == 0, torch.finfo(mask.dtype).min)
+        mask.masked_fill_(mask == 1, 0)
+        mask= mask.repeat(self.heads, 1, 1)
+        return mask
+
+
+    def prepare_mutual_attention_mask(self,b,seq,value):
+        edit_mask_ori,d_ratio = self.process_mask_before_mutual(self.obj_mask,seq)
+        # SDSA_REF_MASK_STEP = self.SDSA_REF_MASK
+        # if self.SDSA_REF_MASK_STEP is not None:
+        #     SDSA_REF_MASK_STEP = self.SDSA_REF_MASK_STEP
+        # ref_mask_ori,_ = self.process_mask_before_mutual(SDSA_REF_MASK_STEP,seq)
+        ref_mask_ori,_ = self.process_mask_before_mutual(self.SDSA_REF_MASK,seq)
+        edit_mask = edit_mask_ori.flatten()[None,]
+        ref_mask = ref_mask_ori.flatten()
+        mask = torch.ones((seq, seq), dtype=value.dtype,device=value.device)
+        FG_mask = (mask*  ref_mask[None,])[None,]
+        BG_mask = (mask* (1-ref_mask)[None,])[None,]
+        mask = mask[None,]
+        #post process -inf
+        FG_mask = torch.cat((FG_mask,mask,FG_mask,mask))
+        BG_mask = torch.cat((BG_mask,mask,BG_mask,mask))
+        FG_mask = self.post_process_attn_mask(FG_mask)
+        BG_mask = self.post_process_attn_mask(BG_mask)
+        mask_ = torch.ones(edit_mask.shape, dtype=value.dtype,device=value.device)
+        final_mask = torch.cat((edit_mask,mask_,edit_mask,mask_)).repeat(self.heads,  1)
+        return FG_mask,BG_mask,final_mask,d_ratio
     def prepare_shared_self_attention_mask(self,b,seq,value):
         if self.SDSA_REF_MASK_STEP is None:
             with torch.no_grad():
@@ -830,7 +909,7 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         batch_size, sequence_length, _ = (
             query.shape
         )
-        #TODO: QUERY BLENDING
+
         query = self.share_attention_prepare(query)
         dim = query.shape[-1]
         key = self.share_attention_prepare(key)
@@ -842,120 +921,116 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         key = self.head_to_batch_dim(key)
         value = self.head_to_batch_dim(value)
 
-        # attention_probs = self.get_attention_scores(query, key, attention_mask)
-        #
-        # _ = self.mask_logging(attention_probs[:, :sequence_length, :sequence_length], is_cross, place_in_unet)#mask logging
-        # del _
-        # hidden_states = torch.bmm(attention_probs, value)
-        """
-        SLICE ATTENTION TO SAVE MEMORY
-        """
-        self.slice_size = self.heads // 2 #auto
-        batch_size_attention, query_tokens, _ = query.shape
+        attention_probs = self.get_attention_scores(query, key, attention_mask)
 
-        hidden_states = torch.zeros(
-            (batch_size_attention, query_tokens, dim // self.heads), device=query.device, dtype=query.dtype
-        )
-        attention_map_log = torch.zeros(
-            (batch_size_attention, query_tokens, query_tokens), device=query.device, dtype=query.dtype
-        )
-
-        for i in range(batch_size_attention // self.slice_size):
-            start_idx = i * self.slice_size
-            end_idx = (i + 1) * self.slice_size
-
-            query_slice = query[start_idx:end_idx]
-            key_slice = key[start_idx:end_idx]
-            attn_mask_slice = attention_mask[start_idx:end_idx] if attention_mask is not None else None
-
-            attn_slice = self.get_attention_scores(query_slice, key_slice, attn_mask_slice)
-            attention_map_log[start_idx:end_idx] = attn_slice
-
-            attn_slice = torch.bmm(attn_slice, value[start_idx:end_idx])
-            hidden_states[start_idx:end_idx] = attn_slice
-        _ = self.mask_logging(attention_map_log[:, :sequence_length, :sequence_length], is_cross, place_in_unet)#mask logging
-        del _,attention_map_log
+        _ = self.mask_logging(attention_probs[:, :sequence_length, :sequence_length], is_cross, place_in_unet)#mask logging
+        del _
+        hidden_states = torch.bmm(attention_probs, value)
         hidden_states = self.batch_to_head_dim(hidden_states)
-        hidden_states = self.inverse_share_attention(hidden_states,batch_size,sequence_length)
+        hidden_states = self.inverse_share_attention(hidden_states, batch_size, sequence_length)
         return hidden_states
+        # """
+        # SLICE ATTENTION TO SAVE MEMORY
+        # """
+        # self.slice_size = self.heads // 2 #auto
+        # batch_size_attention, query_tokens, _ = query.shape
+        #
+        # hidden_states = torch.zeros(
+        #     (batch_size_attention, query_tokens, dim // self.heads), device=query.device, dtype=query.dtype
+        # )
+        # attention_map_log = torch.zeros(
+        #     (batch_size_attention, query_tokens, query_tokens), device=query.device, dtype=query.dtype
+        # )
+        #
+        # for i in range(batch_size_attention // self.slice_size):
+        #     start_idx = i * self.slice_size
+        #     end_idx = (i + 1) * self.slice_size
+        #
+        #     query_slice = query[start_idx:end_idx]
+        #     key_slice = key[start_idx:end_idx]
+        #     attn_mask_slice = attention_mask[start_idx:end_idx] if attention_mask is not None else None
+        #
+        #     attn_slice = self.get_attention_scores(query_slice, key_slice, attn_mask_slice)
+        #     attention_map_log[start_idx:end_idx] = attn_slice
+        #
+        #     attn_slice = torch.bmm(attn_slice, value[start_idx:end_idx])
+        #     hidden_states[start_idx:end_idx] = attn_slice
+        # _ = self.mask_logging(attention_map_log[:, :sequence_length, :sequence_length], is_cross, place_in_unet)#mask logging
+        # del _,attention_map_log
+        # hidden_states = self.batch_to_head_dim(hidden_states)
+        # hidden_states = self.inverse_share_attention(hidden_states,batch_size,sequence_length)
+        # return hidden_states
+    def cross_manner_attention_modulate(self,q):
+        #[uncon_edit,uncon_ref,con_edit,con_ref]
+        _, qu_r, _, qc_r = q.chunk(4)
+        return torch.cat((qu_r,qu_r,qc_r,qc_r))
+    def mask_attention(self,query,key,value,attention_mask):
+        attention_probs = self.get_attention_scores(query, key, attention_mask)
+        return torch.bmm(attention_probs, value)
 
-    def local_edit_cross_attention(self,query,key,value,is_cross, place_in_unet):
-        # TODO:1.share attention condition : SDSA,place_in_unet==UP (decoder)
-        #      2. controller control , different stream
-        #      3. concat
-        #      4. prepare SDSA mask, with dropout for each step
-        #      5. encoder & mid used for mask update on the fly
-
-        # if self.SDSA_EDIT_MASK is None:
-        #     self.SDSA_EDIT_MASK = self.obj_mask #dilated expansion target
-        # else:
-        #     pass
-            # self.SDSA_EDIT_MASK = self.controller.expansion_mask_on_the_fly / self.controller.step_num nan avoid
-            # “Otsu’s method”
-
-        ref_mask = self.SDSA_REF_MASK
-        ref_mask[ref_mask>0] = 1
-        self.SDSA_REF_MASK = ref_mask
-
+    def mutual_self_attention(self, query, key, value, is_cross, place_in_unet):
         batch_size, sequence_length, _ = (
             query.shape
         )
-        #TODO: QUERY BLENDING
-        query = self.share_attention_prepare(query)
-        dim = query.shape[-1]
-        key = self.share_attention_prepare(key)
-        value = self.share_attention_prepare(value)
+        query = self.head_to_batch_dim(query)
+        key = self.head_to_batch_dim(key)
+        value = self.head_to_batch_dim(value)
 
-        attention_mask = self.prepare_shared_self_attention_mask(batch_size//2,sequence_length*2,value)
+        if self.cur_att_layer//2 not in self.layer_idx:
+            hidden_states = self.mask_attention(query,key,value,None)
+            self.cur_att_layer += 1
+            if self.cur_att_layer == self.num_att_layers + self.num_uncond_att_layers:
+                self.cur_att_layer = 0
+                self.cur_step += 1
+                self.between_steps()
+            return self.batch_to_head_dim(hidden_states)
+
+
+        key = self.cross_manner_attention_modulate(key) # Kr -> Ke ->:Replace
+        value = self.cross_manner_attention_modulate(value) # Vr -> Ve
+        #/16 do mutual self attn
+        #prepare BG FG attn mask
+        FG_mask,BG_mask,mask,d_ratio = self.prepare_mutual_attention_mask(batch_size,sequence_length,value)
+        attn_out_fg = self.mask_attention(query,key,value,FG_mask)
+        attn_out_bg = self.mask_attention(query,key,value,BG_mask)
+        hidden_states = mask[:,:,None] * attn_out_fg + (1-mask)[:,:,None]* attn_out_bg
+        hidden_states = self.batch_to_head_dim(hidden_states)
+        self.cur_att_layer += 1
+        if self.cur_att_layer == self.num_att_layers + self.num_uncond_att_layers:
+            self.cur_att_layer = 0
+            self.cur_step += 1
+            self.between_steps()
+
+        return hidden_states
+
+
+    def modulate_local_cross_attn(self,query,key,value,is_cross, place_in_unet):
+        batch_size, sequence_length, _ = (
+            query.shape
+        )
+        local_region = self.obj_mask
+        h, w = local_region.shape
+        d_ratio = int((h * w // sequence_length) ** 0.5)
+        # down sample
+        local_region = F.interpolate(local_region.unsqueeze(0).unsqueeze(0), size=(h // d_ratio, w // d_ratio),
+                                 mode='nearest').squeeze(0, 1).flatten()
 
         query = self.head_to_batch_dim(query)
         key = self.head_to_batch_dim(key)
         value = self.head_to_batch_dim(value)
 
-        # attention_probs = self.get_attention_scores(query, key, attention_mask)
-        #
-        # _ = self.mask_logging(attention_probs[:, :sequence_length, :sequence_length], is_cross, place_in_unet)#mask logging
-        # del _
-        # hidden_states = torch.bmm(attention_probs, value)
-        """
-        SLICE ATTENTION TO SAVE MEMORY
-        """
-        self.slice_size = self.heads // 2 #auto
-        batch_size_attention, query_tokens, _ = query.shape
+        attention_probs = self.get_local_attention_scores(query, key,local_region)
 
-        hidden_states = torch.zeros(
-            (batch_size_attention, query_tokens, dim // self.heads), device=query.device, dtype=query.dtype
-        )
-        attention_map_log = torch.zeros(
-            (batch_size_attention, query_tokens, query_tokens), device=query.device, dtype=query.dtype
-        )
-
-        for i in range(batch_size_attention // self.slice_size):
-            start_idx = i * self.slice_size
-            end_idx = (i + 1) * self.slice_size
-
-            query_slice = query[start_idx:end_idx]
-            key_slice = key[start_idx:end_idx]
-            attn_mask_slice = attention_mask[start_idx:end_idx] if attention_mask is not None else None
-
-            attn_slice = self.get_attention_scores(query_slice, key_slice, attn_mask_slice)
-            attention_map_log[start_idx:end_idx] = attn_slice
-
-            attn_slice = torch.bmm(attn_slice, value[start_idx:end_idx])
-            hidden_states[start_idx:end_idx] = attn_slice
-        _ = self.mask_logging(attention_map_log[:, :sequence_length, :sequence_length], is_cross, place_in_unet)#mask logging
-        del _,attention_map_log
+        hidden_states = torch.bmm(attention_probs, value)
         hidden_states = self.batch_to_head_dim(hidden_states)
-        hidden_states = self.inverse_share_attention(hidden_states,batch_size,sequence_length)
+        del attention_probs
+        self.cur_att_layer += 1
+        if self.cur_att_layer == self.num_att_layers + self.num_uncond_att_layers:
+            self.cur_att_layer = 0
+            self.cur_step += 1
+            self.between_steps()
+
         return hidden_states
-
-
-
-
-
-
-
-
 
     def set_FI_allow(self,):
         self.DIFT_FEATURE_INJ= True
@@ -972,7 +1047,8 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
 
     def feature_injection(self, hidden_states, is_cross, place_in_unet, alpha=0.8):
         # start_time = time.time()
-
+        # if self.cur_att_layer // 2 not in self.layer_idx:
+        #     return hidden_states
         feature_map_layers = self.correspondence_map
         batch, hw, c = hidden_states.shape
 
@@ -1019,46 +1095,9 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
 
 
 
-    # def feature_injection_original(self,hidden_states, is_cross, place_in_unet,alpha=0.8):
-    #     start_time = time.time()
-    #
-    #
-    #     feature_map_layers = self.correspondence_map
-    #     batch, hw, c = hidden_states.shape
-    #
-    #     edit_mask,_,_ = self.inter_mask(hw,self.obj_mask)
-    #     ref_mask,h,w = self.inter_mask(hw,self.SDSA_REF_MASK)
-    #
-    #     feature_map = None
-    #     if feature_map_layers[0].shape[0] == h:
-    #         feature_map = feature_map_layers[0]
-    #     elif feature_map_layers[1].shape[0] == h:
-    #         feature_map = feature_map_layers[1]
-    #     elif feature_map_layers[2].shape[0] == h:
-    #         feature_map = feature_map_layers[2]
-    #     #hidden_state [uncon_edit,uncon_ref,con_edit,con_ref]
-    #     if feature_map is None:#except for mid block
-    #         return hidden_states
-    #     chunks = hidden_states.chunk(2)
-    #     new_hidden = []
-    #     for hidden in chunks:
-    #         edit_hidden = hidden[0]
-    #         ref_hidden = hidden[1]
-    #         for h_index in range(h):
-    #             for w_index in range(w):
-    #                 q = feature_map[h_index, w_index]
-    #                 if q[0] != -1 and edit_mask[h_index, w_index] >0.5:#patch matched successfully & in the foreground
-    #                     if  ref_mask[ q[0], q[1]] > 0.5: # in the foreground of ref_mask
-    #                         ref_feat = ref_hidden[q[0] * w + q[1]]
-    #                         edit_hidden[h_index * w + w_index] = (1 - alpha) * edit_hidden[h_index * w + w_index] + alpha * ref_feat
-    #         new_hidden.append(torch.cat((edit_hidden[None,],ref_hidden[None,]),dim=0))
-    #     new_hidden = torch.cat(new_hidden,dim=0)
-    #     end_time = time.time()
-    #     elapsed_time = end_time - start_time
-    #     print(f"FI executed in: {elapsed_time:.6f} seconds")
-    #     return new_hidden
 
-    def __init__(self,block_size=7,drop_rate=0.5):
+
+    def __init__(self,block_size=7,drop_rate=0.5,layer_idx=None,start_layer=None):
         super(Mask_Expansion_SELF_ATTN, self).__init__()
         self.step_store = self.get_empty_store()
         self.expansion_mask_store={}
@@ -1077,6 +1116,11 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         self.drop_block = MaskDropBlock(block_size, drop_rate)
         self.DIFT_FEATURE_INJ = False
         self.correspondence_map = None
+        self.layer_idx = list(range(start_layer, 16))
+        # MODEL_TYPE = {
+        #     "SD": 16,
+        #     "SDXL": 70
+        # }
 
 
 class SelfAttentionControlEdit(AttentionStore, abc.ABC):

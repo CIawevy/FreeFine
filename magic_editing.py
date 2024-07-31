@@ -8,8 +8,6 @@ import torch
 import cv2
 from src.utils.attention import AttentionStore,register_attention_control,Mask_Expansion_SELF_ATTN
 import gradio as gr
-from depth_anything.dpt import DepthAnything
-from depth_anything.util.transform import Resize, NormalizeImage, PrepareForNet
 from depth_anything_v2.dpt import DepthAnythingV2
 from torchvision.transforms import Compose
 from diffusers import DDIMScheduler
@@ -73,8 +71,8 @@ depth_anything_v2.to(device).eval()
 
 pretrained_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-v1-5/"
 lora_path = gr.Textbox(value="./lora_tmp", label="LoRA path")
-vae_path = "/data/Hszhu/prompt-to-prompt/sd-vae-ft-mse"
-# vae_path = "default"
+# vae_path = "/data/Hszhu/prompt-to-prompt/sd-vae-ft-mse"
+vae_path = "default"
 #implement from p2p & FPE they have the same scheduler config which is different from official code
 # scheduler = DDIMScheduler(beta_start=0.00085, beta_end=0.012, beta_schedule="scaled_linear", clip_sample=False, set_alpha_to_one=False)
 # model = ClawerModels.from_pretrained(pretrained_model_path,scheduler=scheduler).to(device)
@@ -96,7 +94,7 @@ model.sd_inpainter = sd_inpainter
 model.depth_anything = depth_anything_v2
 # model.depth_anything = depth_anything
 # model.transform = transform
-controller = Mask_Expansion_SELF_ATTN(block_size=4,drop_rate=0.7)
+controller = Mask_Expansion_SELF_ATTN(block_size=8,drop_rate=0.5,start_layer=10)
 controller.contrast_beta = 1.67
 controller.use_contrast = True
 model.controller = controller
@@ -115,14 +113,15 @@ original_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)
 mask = cv2.imread(mask_path)
 
 guidance_scale = 7.5
-eta = 0.0
+eta = 0.3
 num_step = 50
-start_step = 10
-end_step = 10
+start_step = 15
+end_step = 5
 feature_injection=True
 use_sdsa = True
 #SDSA ['down','mid','up']
-FI_range=(782,680)
+# FI_range=(782,680)
+FI_range=(682,640)
 sim_thr = 0.5
 DIFT_LAYER_IDX = [0,1,2,3] #[1,2,3]
 mask_threshold =  0.2
@@ -137,22 +136,22 @@ max_resolution = 512
 dilate_kernel_size = 30
 contrast_beta = 1.67
 
-seed =42
+seed = 42
 splatting_radius = 0.015
 splatting_tau =  0.0
 splatting_points_per_pixel = 30
-focal_length =  384
+focal_length =  340
 sx =  1
 sy = 1
-sz =1
+sz = 1
 rx = 0
-ry = -40
-rz =  0
-tx =0
-ty = 0
-tz =  0
+ry = 0
+rz = 0
+tx = 0.2
+ty = -0.2
+tz =  0.3
 
-prompt='car'
+prompt="car"
 INP_prompt='empty scene'
 
 
