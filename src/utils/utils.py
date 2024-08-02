@@ -3,7 +3,14 @@ import cv2
 from basicsr.utils import img2tensor
 import torch
 import torch.nn.functional as F
-
+from PIL import Image
+def get_inw(trans_img,max_w,max_h):
+    if isinstance(trans_img,np.ndarray):
+        trans_img = cv2.cvtColor(trans_img, cv2.COLOR_RGB2BGR)
+        trans_img = Image.fromarray(trans_img)  # PIL img
+    trans_img.thumbnail([max_w, max_h], Image.Resampling.LANCZOS)
+    image_arr = np.array(trans_img)
+    return image_arr.shape[:2]
 def resize_numpy_image(image, max_resolution=768 * 768, resize_short_edge=None,mask_input=False):
     h, w = image.shape[:2]
     w_org = image.shape[1]

@@ -1,5 +1,5 @@
 from src.models.dragondiff import DragonPipeline
-from src.utils.utils import resize_numpy_image, split_ldm, process_move, process_drag_face, process_drag, process_appearance, process_paste
+from src.utils.utils import resize_numpy_image,get_inw, split_ldm, process_move, process_drag_face, process_drag, process_appearance, process_paste
 from src.utils.inversion import DDIMInversion
 from src.utils.geometric_utils import Integrated3DTransformAndInpaint
 from src.utils.geo_utils import IntegratedP3DTransRasterBlendingFull,param2theta,wrapAffine_tensor,PartialConvInterpolation,tensor_inpaint_fmm,calculate_cosine_similarity_between_batches
@@ -26,6 +26,7 @@ from torchvision import transforms as tfms
 from diffusers import StableDiffusionPipeline
 from src.utils.attention import AttentionStore,register_attention_control,Mask_Expansion_SELF_ATTN
 from src.utils.attention import override_forward
+from rembg import remove
 NUM_DDIM_STEPS = 50
 SIZES = {
     0:4,
@@ -3121,7 +3122,74 @@ class ClawerModel_v2(StableDiffusionPipeline):
         #     plt.close()
         return transformed_mask_list
 
+    def temp_view_img(self,image: Image.Image, title: str = None) -> None:
+        # PIL -> ndarray OR ndarray->PIL->ndarray
+        if not isinstance(image, Image.Image):#ndarray
+            # image_array = Image.fromarray(image).convert('RGB')
+            image_array = image
+        else:#PIL
+            if image.mode != 'RGB':
+                image.convert('RGB')
+            image_array = np.array(image)
 
+
+        plt.imshow(image_array)
+        if title is not None:
+            plt.title(title)
+        plt.axis('off')  # Hide the axis
+        plt.show()
+    def replace_with_SV3D_targets_inpainting(self,ori_img,trans_img,ori_mask,trans_mask,target_mask,inpainter,inp_prompt=None,
+                                             ):
+
+        #inpaint & replace
+        if isinstance(ori_img, Image.Image):
+            ori_img = np.array(ori_img)
+        if isinstance(trans_img, Image.Image):
+            trans_img = np.array(trans_img)
+        if inp_prompt is None:
+            inp_prompt = 'empty scene'
+        if ori_mask.ndim == 3 and ori_mask.shape[2] == 3:
+            ori_mask = cv2.cvtColor(ori_mask, cv2.COLOR_BGR2GRAY)
+            # mask = mask > 128
+        if trans_mask.ndim == 3 and trans_mask.shape[2] == 3:
+            trans_mask = cv2.cvtColor(trans_mask, cv2.COLOR_BGR2GRAY)
+            # target_mask =target_mask > 128
+
+
+
+        ori_mask = (ori_mask > 0).astype(bool)
+        ori_image_back_ground = np.where(ori_mask[:, :, None], 0, ori_img).astype(np.uint8)
+        image_with_hole = ori_image_back_ground
+        coarse_repaired = inpainter(Image.fromarray(ori_image_back_ground), Image.fromarray(
+            ori_mask.astype(np.uint8) * 255))  # lama inpainting filling the black regions
+        to_inpaint_img = coarse_repaired
+
+        inpaint_mask = Image.fromarray(ori_mask.astype(np.uint8) * 255)
+        print(f'SD inpainting Processing:')
+        semantic_repaired = self.sd_inpainter(prompt=inp_prompt, image=to_inpaint_img, mask_image=inpaint_mask).images[0]
+        if semantic_repaired.size != to_inpaint_img.size:
+            print(f'inpainted image {semantic_repaired.size} -> original size {to_inpaint_img.size}')
+            semantic_repaired = semantic_repaired.resize(to_inpaint_img.size)
+
+
+
+        x, y, w, h = cv2.boundingRect(target_mask)
+        cent_h,cent_w = y+h//2,x+w//2
+        x, y, w, h = cv2.boundingRect(trans_mask)
+        repl_trans_mask = np.zeros_like(target_mask)
+        repl_trans_img = np.zeros_like(ori_img)
+        repl_trans_mask[
+        cent_h - h // 2: cent_h - h // 2 + h,
+        cent_w - w // 2: cent_w - w // 2 + w,
+        ] = trans_mask[y : y + h, x : x + w]
+        repl_trans_img[
+        cent_h - h // 2: cent_h - h // 2 + h,
+        cent_w - w // 2: cent_w - w // 2 + w,
+        ] = trans_img[y : y + h, x : x + w]
+        repl_trans_mask =(repl_trans_mask>0).astype(bool)
+        final_image = np.where(repl_trans_mask[:, :, None], repl_trans_img, semantic_repaired)
+
+        return final_image, image_with_hole,repl_trans_mask.astype(np.uint8)*255
 
     def move_and_inpaint_with_expansion_mask_3D(self, image, mask, depth_map, transforms, FX, FY, object_only=True,
                                                 inpainter=None, mode=None,
@@ -3330,8 +3398,106 @@ class ClawerModel_v2(StableDiffusionPipeline):
         # target_mask = Image.fromarray(target_mask)
         inpaint_mask_vis = Image.fromarray(inpaint_mask_vis)
         return  [edit_gen_image],[refer_gen_image],[img_preprocess],[inpaint_mask_vis],[target_mask],[depth_plot]
+    def get_mask_from_rembg(self,trans_img,size=None):
+        if isinstance(trans_img,np.ndarray):
+            trans_img = cv2.cvtColor(trans_img,cv2.COLOR_RGB2BGR)
+            trans_img = Image.fromarray(trans_img) #PIL img
+
+        if size is not None:
+            trans_img.thumbnail(size, Image.Resampling.LANCZOS)
+
+        return_img = np.array(trans_img.copy())
+        return_img = cv2.cvtColor(return_img, cv2.COLOR_BGR2RGB)
+        trans_img = remove(trans_img.convert("RGBA"), alpha_matting=True)
+        image_arr = np.array(trans_img)
+        in_w, in_h = image_arr.shape[:2]
+        _, trans_mask = cv2.threshold(
+            np.array(trans_img.split()[-1]), 128, 255, cv2.THRESH_BINARY
+        )
+        return trans_mask,in_w,return_img
+    def Magic_Editing_Baseline_SV3D(self, original_image, transformed_image, prompt, INP_prompt,
+                                  seed, guidance_scale, num_step, max_resolution, mode, dilate_kernel_size, start_step,
+                                  tx, ty, tz, rx, ry, rz, sx, sy, sz, mask_ref=None, eta=0, use_mask_expansion=True,
+                                  standard_drawing=True, contrast_beta=1.67, strong_inpaint=True,
+                                  cross_enhance=False,
+                                  mask_threshold=0.1, mask_threshold_target=0.1, blending_alpha=0.5,
+                                  splatting_radius=0.015, splatting_tau=0.0, splatting_points_per_pixel=30,
+                                  focal_length=1080, end_step=10, feature_injection=True, FI_range=(900, 680),
+                                  sim_thr=0.5, DIFT_LAYER_IDX=[0, 1, 2, 3], use_sdsa=True,select_mask=None,
+                                  ):
+        seed_everything(seed)
+        # transforms = [tx, ty, tz, rx, ry, rz, sx, sy, sz]
+        # print(f'trans {transforms}')
+
+        img = original_image
+        trans_img = transformed_image
+        if select_mask is None:
+            print(f'generating original image mask')
+            mask,in_w,img = self.get_mask_from_rembg(img,size=[768,768])
+            trans_img = cv2.resize(trans_img,(in_w,in_w))
+            print(f'generating transformed image mask')
+            trans_mask,_,trans_img = self.get_mask_from_rembg(trans_img)
+        else:
+            print(f'generating original image mask')
+            mask, in_w, img = self.get_mask_from_rembg(img, size=[768, 768])
+            trans_img = cv2.resize(trans_img, (in_w, in_w))
+            print(f'generating transformed image mask')
+            trans_mask, _, trans_img = self.get_mask_from_rembg(trans_img)
 
 
+
+
+        target_mask = mask
+        mask_to_use = self.dilate_mask(mask, dilate_kernel_size)  # dilate for better expansion mask
+
+        # mask expansion
+        if use_mask_expansion:
+            self.controller.contrast_beta = contrast_beta #numpy input
+            expand_mask, _ = self.DDIM_inversion_mask_expansion_func(img=img, mask=mask_to_use, prompt="",
+                                                                     guidance_scale=1, num_step=10,
+                                                                     start_step=2,
+                                                                     roi_expansion=True,
+                                                                     mask_threshold=mask_threshold,
+                                                                     post_process='hard', )
+        else:
+            expand_mask = mask_to_use
+
+        img_preprocess, inpaint_mask_vis,shifted_mask = self.replace_with_SV3D_targets_inpainting(img, trans_img,expand_mask,trans_mask,target_mask,
+                                                                                                      self.inpainter,INP_prompt,)
+        mask_to_use = shifted_mask
+        # mask_to_use = self.dilate_mask(shifted_mask, dilate_kernel_size) * 255  # dilate for better expansion mask
+        ori_img = img
+        img = img_preprocess
+        if isinstance(img, np.ndarray):
+            img_preprocess = Image.fromarray(img_preprocess)
+        self.controller.contrast_beta = contrast_beta
+        expand_shift_mask, inverted_latent = self.DDIM_inversion_mask_expansion_func(img=img, mask=mask_to_use,
+                                                                                     prompt="",
+                                                                                     guidance_scale=1,
+                                                                                     num_step=num_step,
+                                                                                     start_step=start_step,
+                                                                                     roi_expansion=True,
+                                                                                     mask_threshold=mask_threshold_target,
+                                                                                     post_process='hard',
+                                                                                     use_mask_expansion=False,
+                                                                                     ref_img=ori_img)  # ndarray mask
+
+        edit_gen_image, refer_gen_image, target_mask, = self.ReggioEdit3D(img, inverted_latent, prompt,
+                                                                          expand_shift_mask, target_mask,
+                                                                          num_steps=num_step, start_step=start_step,
+                                                                          end_step=end_step,
+                                                                          guidance_scale=guidance_scale, eta=eta,
+                                                                          roi_expansion=True,
+                                                                          mask_threshold=mask_threshold_target,
+                                                                          post_process='hard',
+                                                                          feature_injection=feature_injection,
+                                                                          FI_range=FI_range, sim_thr=sim_thr,
+                                                                          dilate_kernel_size=dilate_kernel_size,
+                                                                          DIFT_LAYER_IDX=DIFT_LAYER_IDX,
+                                                                          use_sdsa=use_sdsa, ref_img=ori_img)
+        # target_mask = Image.fromarray(target_mask)
+        inpaint_mask_vis = Image.fromarray(inpaint_mask_vis)
+        return [edit_gen_image], [refer_gen_image], [img_preprocess], [inpaint_mask_vis], [target_mask]
 
 
 

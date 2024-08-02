@@ -690,8 +690,8 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         mask = self.obj_mask
         h,seq_len,_ = attn.shape #head
         m_h,m_w = mask.shape
-        sample_rate = math.sqrt(m_h*m_w  /seq_len)
-        attn_h,attn_w = int(m_h/sample_rate),int(m_w/sample_rate)
+        d_ratio = (m_h * m_w // seq_len) ** 0.5
+        attn_h,attn_w = int(m_h / d_ratio+0.5),int(m_w / d_ratio+0.5)
         mask = mask.unsqueeze(0).unsqueeze(0)
         downsampled_mask = F.interpolate(mask, size=(attn_h, attn_w), mode='nearest')
         mask_index = (downsampled_mask > 0.5).squeeze(0).squeeze(0).flatten()#obj mask -> down sampled obj mask
@@ -819,7 +819,7 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         h, w = mask.shape
         d_ratio = int((h * w // seq) ** 0.5)
         # down sample
-        mask=F.interpolate(mask.unsqueeze(0).unsqueeze(0), size=(h // d_ratio, w // d_ratio),
+        mask=F.interpolate(mask.unsqueeze(0).unsqueeze(0), size=(int(h / d_ratio+0.5), int(w / d_ratio+0.5)),
                                  mode='nearest').squeeze(0, 1)
         return mask,d_ratio
     def post_process_attn_mask(self,mask):
@@ -863,7 +863,7 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         h,w = SDSA_REF_MASK_STEP.shape
         d_ratio = int((h*w // half_seq )**0.5)
         #down sample
-        ref_mask = F.interpolate(SDSA_REF_MASK_STEP.unsqueeze(0).unsqueeze(0), size=(h//d_ratio, w//d_ratio), mode='nearest').squeeze(0,1).flatten()
+        ref_mask = F.interpolate(SDSA_REF_MASK_STEP.unsqueeze(0).unsqueeze(0), size=(int(h/d_ratio+0.5), int(w/d_ratio+0.5)), mode='nearest').squeeze(0,1).flatten()
 
         mask = torch.zeros((b, seq, seq), dtype=value.dtype,device=value.device)
         mask[:, :half_seq, :half_seq] = 1
@@ -1012,7 +1012,7 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         h, w = local_region.shape
         d_ratio = int((h * w // sequence_length) ** 0.5)
         # down sample
-        local_region = F.interpolate(local_region.unsqueeze(0).unsqueeze(0), size=(h // d_ratio, w // d_ratio),
+        local_region = F.interpolate(local_region.unsqueeze(0).unsqueeze(0), size=(int(h / d_ratio+0.5),int( w // d_ratio+0.5)),
                                  mode='nearest').squeeze(0, 1).flatten()
 
         query = self.head_to_batch_dim(query)
@@ -1041,7 +1041,7 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         mask[mask>0] = 1
         mask_h, mask_w = mask.shape
         d_ratio = ((mask_h * mask_w) / hw)**0.5
-        h, w = int(mask_h / d_ratio), int(mask_w / d_ratio)
+        h, w = int(mask_h / d_ratio+0.5), int(mask_w / d_ratio+0.5)
         mask = F.interpolate(mask.unsqueeze(0).unsqueeze(0), size=(h, w), mode='bicubic').squeeze(0, 1)
         return mask,h,w
 
