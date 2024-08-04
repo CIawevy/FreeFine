@@ -2812,6 +2812,7 @@ class ClawerModel_v2(StableDiffusionPipeline):
             eta=0.0,
             foreground_mask=None,
             obj_mask=None,
+            local_var_reg=None,
             blending = True,
             feature_injection_allowed=True,
             feature_injection_timpstep_range=(900, 600),
@@ -2895,6 +2896,9 @@ class ClawerModel_v2(StableDiffusionPipeline):
             #                                        foreground_mask=foreground_mask, lr=0.1, lam=1, eta=1.0,
             #                                        refer_latent=refer_latents[i - start_step + 1],
             #                                        h_feature_input=h_feature,)
+            #[edit,ref]
+            ref_latent = refer_latents[i - start_step + 1][1]
+            latents[1] = ref_latent
             if i<50 - end_step:
                 self.controller.share_attn = use_sdsa  # allow SDSA
             else:
@@ -2902,6 +2906,7 @@ class ClawerModel_v2(StableDiffusionPipeline):
                 # h_feature = torch.cat([h_feature] * 2)
             # if guidance_scale > 1.:
             with torch.no_grad():
+
                 model_inputs = torch.cat([latents] * 2)
                 # h_feature_inputs = torch.cat([h_feature] * 2)
                 h_feature_inputs = h_feature
@@ -2928,7 +2933,8 @@ class ClawerModel_v2(StableDiffusionPipeline):
                 # is that scheduler version would clamp pred_x0 between [-1,1]
                 # don't know if that's gonna have huge impact
                 # latents = self.scheduler.step(noise_pred, t, latents, return_dict=False, eta=eta)[0]
-                latents = self.ctrl_step(noise_pred, t,  latents, obj_mask, eta=eta)[0]
+                # full_mask = torch.ones_like(obj_mask)
+                latents = self.ctrl_step(noise_pred, t,  latents,local_var_reg, eta=eta)[0]
                 latents_list.append(latents)
         image = self.latent2image(latents, return_type="pt")
         if return_intermediates:
@@ -3138,7 +3144,7 @@ class ClawerModel_v2(StableDiffusionPipeline):
             plt.title(title)
         plt.axis('off')  # Hide the axis
         plt.show()
-    def replace_with_SV3D_targets_inpainting(self,ori_img,trans_img,ori_mask,trans_mask,target_mask,inpainter,inp_prompt=None,
+    def replace_with_SV3D_targets_inpainting(self,ori_img,trans_img,ori_mask,trans_mask,target_mask,mode,inpainter,inp_prompt=None,
                                              ):
 
         #inpaint & replace
@@ -3160,17 +3166,22 @@ class ClawerModel_v2(StableDiffusionPipeline):
         ori_mask = (ori_mask > 0).astype(bool)
         ori_image_back_ground = np.where(ori_mask[:, :, None], 0, ori_img).astype(np.uint8)
         image_with_hole = ori_image_back_ground
-        coarse_repaired = inpainter(Image.fromarray(ori_image_back_ground), Image.fromarray(
-            ori_mask.astype(np.uint8) * 255))  # lama inpainting filling the black regions
-        to_inpaint_img = coarse_repaired
+        coarse_repaired = np.array(inpainter(Image.fromarray(ori_image_back_ground), Image.fromarray(
+            ori_mask.astype(np.uint8) * 255)))  # lama inpainting filling the black regions
+        if mode != 1:
+            inpaint_mask = Image.fromarray(ori_mask.astype(np.uint8) * 255)
+            sd_to_inpaint_img = Image.fromarray(coarse_repaired)
+            print(f'SD inpainting Processing:')
+            semantic_repaired = \
+            self.sd_inpainter(prompt=inp_prompt, image=sd_to_inpaint_img, mask_image=inpaint_mask).images[0]
+            semantic_repaired = np.array(semantic_repaired)
+        else:
+            semantic_repaired = coarse_repaired
 
-        inpaint_mask = Image.fromarray(ori_mask.astype(np.uint8) * 255)
-        print(f'SD inpainting Processing:')
-        semantic_repaired = self.sd_inpainter(prompt=inp_prompt, image=to_inpaint_img, mask_image=inpaint_mask).images[0]
-        if semantic_repaired.size != to_inpaint_img.size:
-            print(f'inpainted image {semantic_repaired.size} -> original size {to_inpaint_img.size}')
-            semantic_repaired = semantic_repaired.resize(to_inpaint_img.size)
-
+        if semantic_repaired.shape != image_with_hole.shape:
+            print(f'inpainted image {semantic_repaired.shape} -> original size {image_with_hole.shape}')
+            h, w = image_with_hole.shape[:2]
+            semantic_repaired = cv2.resize(semantic_repaired, (w, h), interpolation=cv2.INTER_LANCZOS4)
 
 
         x, y, w, h = cv2.boundingRect(target_mask)
@@ -3253,19 +3264,23 @@ class ClawerModel_v2(StableDiffusionPipeline):
         # final_image = np.where(retain_mask[:, :, None], coarse_repaired, semantic_repaired)
         ori_image_back_ground = np.where(mask[:, :, None], 0, image).astype(np.uint8)
         image_with_hole = ori_image_back_ground
-        coarse_repaired = inpainter(Image.fromarray(ori_image_back_ground), Image.fromarray(
-            mask.astype(np.uint8) * 255))  # lama inpainting filling the black regions
-        to_inpaint_img = coarse_repaired
-        if mode == 1:
-            semantic_repaired = to_inpaint_img
-        elif mode == 2:
+        coarse_repaired = np.array(inpainter(Image.fromarray(ori_image_back_ground), Image.fromarray(
+            mask.astype(np.uint8) * 255)))  # lama inpainting filling the black regions
+        if mode != 1:
             inpaint_mask = Image.fromarray(mask.astype(np.uint8) * 255)
+            sd_to_inpaint_img = Image.fromarray(coarse_repaired)
             print(f'SD inpainting Processing:')
             semantic_repaired = \
-                self.sd_inpainter(prompt=inp_prompt, image=to_inpaint_img, mask_image=inpaint_mask).images[0]
-        if semantic_repaired.size != to_inpaint_img.size:
-            print(f'inpainted image {semantic_repaired.size} -> original size {to_inpaint_img.size}')
-            semantic_repaired = semantic_repaired.resize(to_inpaint_img.size)
+                self.sd_inpainter(prompt=inp_prompt, image=sd_to_inpaint_img, mask_image=inpaint_mask).images[0]
+            semantic_repaired = np.array(semantic_repaired)
+        else:
+            semantic_repaired = coarse_repaired
+
+        if semantic_repaired.shape != image_with_hole.shape:
+            print(f'inpainted image {semantic_repaired.shape} -> original size {image_with_hole.shape}')
+            h, w = image_with_hole.shape[:2]
+            semantic_repaired = cv2.resize(semantic_repaired, (w, h), interpolation=cv2.INTER_LANCZOS4)
+
         final_image = np.where(transformed_mask[:, :, None], transformed_image, semantic_repaired)
 
         return final_image, image_with_hole, transformed_mask
@@ -3398,53 +3413,57 @@ class ClawerModel_v2(StableDiffusionPipeline):
         # target_mask = Image.fromarray(target_mask)
         inpaint_mask_vis = Image.fromarray(inpaint_mask_vis)
         return  [edit_gen_image],[refer_gen_image],[img_preprocess],[inpaint_mask_vis],[target_mask],[depth_plot]
-    def get_mask_from_rembg(self,trans_img,size=None):
+    def get_mask_from_rembg(self,trans_img,size=None,need_mask=True):
+
         if isinstance(trans_img,np.ndarray):
             trans_img = cv2.cvtColor(trans_img,cv2.COLOR_RGB2BGR)
             trans_img = Image.fromarray(trans_img) #PIL img
+        if need_mask:
+            if size is not None:
+                trans_img.thumbnail(size, Image.Resampling.LANCZOS)
+                print(f'resized_img shape:{trans_img.size}')
 
-        if size is not None:
+            return_img = np.array(trans_img.copy())
+            return_img = cv2.cvtColor(return_img, cv2.COLOR_BGR2RGB)
+            trans_img = remove(trans_img.convert("RGBA"), alpha_matting=True)
+            image_arr = np.array(trans_img)
+            in_w, in_h = image_arr.shape[:2]
+            _, trans_mask = cv2.threshold(
+                np.array(trans_img.split()[-1]), 128, 255, cv2.THRESH_BINARY
+            )
+            return trans_mask,in_w,return_img
+        else:#resize pipe
+            assert size is not None,"for resize pipe,size should be given"
             trans_img.thumbnail(size, Image.Resampling.LANCZOS)
-
-        return_img = np.array(trans_img.copy())
-        return_img = cv2.cvtColor(return_img, cv2.COLOR_BGR2RGB)
-        trans_img = remove(trans_img.convert("RGBA"), alpha_matting=True)
-        image_arr = np.array(trans_img)
-        in_w, in_h = image_arr.shape[:2]
-        _, trans_mask = cv2.threshold(
-            np.array(trans_img.split()[-1]), 128, 255, cv2.THRESH_BINARY
-        )
-        return trans_mask,in_w,return_img
+            return_img = np.array(trans_img.copy())
+            return_img = cv2.cvtColor(return_img, cv2.COLOR_BGR2RGB)
+            in_w, in_h = return_img.shape[:2]
+            return return_img, in_w
     def Magic_Editing_Baseline_SV3D(self, original_image, transformed_image, prompt, INP_prompt,
                                   seed, guidance_scale, num_step, max_resolution, mode, dilate_kernel_size, start_step,
-                                  tx, ty, tz, rx, ry, rz, sx, sy, sz, mask_ref=None, eta=0, use_mask_expansion=True,
-                                  standard_drawing=True, contrast_beta=1.67, strong_inpaint=True,
-                                  cross_enhance=False,
-                                  mask_threshold=0.1, mask_threshold_target=0.1, blending_alpha=0.5,
-                                  splatting_radius=0.015, splatting_tau=0.0, splatting_points_per_pixel=30,
-                                  focal_length=1080, end_step=10, feature_injection=True, FI_range=(900, 680),
-                                  sim_thr=0.5, DIFT_LAYER_IDX=[0, 1, 2, 3], use_sdsa=True,select_mask=None,
+                                  eta=0, use_mask_expansion=True,contrast_beta=1.67, mask_threshold=0.1, mask_threshold_target=0.1, end_step=10,
+                                feature_injection=True, FI_range=(900, 680),sim_thr=0.5, DIFT_LAYER_IDX=[0, 1, 2, 3], use_sdsa=True,select_mask=None,
                                   ):
         seed_everything(seed)
-        # transforms = [tx, ty, tz, rx, ry, rz, sx, sy, sz]
-        # print(f'trans {transforms}')
 
         img = original_image
         trans_img = transformed_image
         if select_mask is None:
             print(f'generating original image mask')
-            mask,in_w,img = self.get_mask_from_rembg(img,size=[768,768])
+            mask,in_w,img = self.get_mask_from_rembg(img,size=[max_resolution,max_resolution])
             trans_img = cv2.resize(trans_img,(in_w,in_w))
             print(f'generating transformed image mask')
             trans_mask,_,trans_img = self.get_mask_from_rembg(trans_img)
-        else:
-            print(f'generating original image mask')
-            mask, in_w, img = self.get_mask_from_rembg(img, size=[768, 768])
+        else:#resize + mask resize
+            print(f'input selected mask : Yes')
+            img, in_w = self.get_mask_from_rembg(img, size=[max_resolution, max_resolution],need_mask=False)
+            w,h = img.shape[:2]
+            mask = cv2.resize(select_mask,(h,w))
+            if mask.ndim == 3:
+                mask = mask[:, :, 0]
             trans_img = cv2.resize(trans_img, (in_w, in_w))
             print(f'generating transformed image mask')
             trans_mask, _, trans_img = self.get_mask_from_rembg(trans_img)
-
-
 
 
         target_mask = mask
@@ -3462,7 +3481,7 @@ class ClawerModel_v2(StableDiffusionPipeline):
         else:
             expand_mask = mask_to_use
 
-        img_preprocess, inpaint_mask_vis,shifted_mask = self.replace_with_SV3D_targets_inpainting(img, trans_img,expand_mask,trans_mask,target_mask,
+        img_preprocess, inpaint_mask_vis,shifted_mask = self.replace_with_SV3D_targets_inpainting(img, trans_img,expand_mask,trans_mask,target_mask,mode,
                                                                                                       self.inpainter,INP_prompt,)
         mask_to_use = shifted_mask
         # mask_to_use = self.dilate_mask(shifted_mask, dilate_kernel_size) * 255  # dilate for better expansion mask
@@ -3502,45 +3521,104 @@ class ClawerModel_v2(StableDiffusionPipeline):
 
 
 
+    def move_and_inpaint(self, ori_img, ori_mask, dx, dy, inpainter=None, mode=None,
+                                             inp_prompt=None,
+                                             resize_scale=1.0, rotation_angle=0,target_mask=None,flip_horizontal=False,flip_vertical=False):
 
-    def Continuous_Editing_Baseline_2D(self, original_image, mask, prompt, motion_split_steps,
-                                       seed, selected_points, guidance_scale, num_step, max_resolution,
-                                       dilate_kernel_size,max_times,sim_thr,lr,lam,
-                                       start_step,end_step, mask_ref=None, eta=0, use_mask_expansion=True,
-                                       standard_drawing=True, contrast_beta=1.67, resize_scale=1.0,
-                                       rotation_angle=None, strong_inpaint=True, flip_horizontal=False,
-                                       flip_vertical=False,
-                                       cross_enhance=False,
-                                       mask_threshold=0.1, mask_threshold_target=0.1, blending_alpha=0.5,
-                                       ):
+        # inpaint & replace
+        if isinstance(ori_img, Image.Image):
+            ori_img = np.array(ori_img)
+        if inp_prompt is None:
+            inp_prompt = 'empty scene'
+        if ori_mask.ndim == 3 and ori_mask.shape[2] == 3:
+            ori_mask = cv2.cvtColor(ori_mask, cv2.COLOR_BGR2GRAY)
+        if target_mask.ndim == 3 and target_mask.shape[2] == 3:
+            target_mask = cv2.cvtColor(target_mask, cv2.COLOR_BGR2GRAY)
+
+
+        #prepare background
+        ori_mask = (ori_mask > 0).astype(bool)
+        ori_image_back_ground = np.where(ori_mask[:, :, None], 0, ori_img).astype(np.uint8)
+        image_with_hole = ori_image_back_ground
+        # print(f'ori_shape:{ori_image_back_ground.shape}')
+        coarse_repaired = np.array(inpainter(Image.fromarray(ori_image_back_ground), Image.fromarray(
+            ori_mask.astype(np.uint8) * 255)))  # lama inpainting filling the black regions
+        if mode != 1:
+            inpaint_mask = Image.fromarray(ori_mask.astype(np.uint8) * 255)
+            sd_to_inpaint_img = Image.fromarray(coarse_repaired)
+            print(f'SD inpainting Processing:')
+            semantic_repaired = \
+            self.sd_inpainter(prompt=inp_prompt, image=sd_to_inpaint_img, mask_image=inpaint_mask).images[0]
+            semantic_repaired = np.array(semantic_repaired)
+        else:
+            semantic_repaired = coarse_repaired
+
+        if semantic_repaired.shape != image_with_hole.shape:
+            print(f'inpainted image {semantic_repaired.shape} -> original size {image_with_hole.shape}')
+            h,w = image_with_hole.shape[:2]
+            semantic_repaired = cv2.resize(semantic_repaired,(w,h),interpolation=cv2.INTER_LANCZOS4)
+        # Prepare foreground
+        height, width = ori_img.shape[:2]
+        y_indices, x_indices = np.where(target_mask)
+        if len(y_indices) > 0 and len(x_indices) > 0:
+            top, bottom = np.min(y_indices), np.max(y_indices)
+            left, right = np.min(x_indices), np.max(x_indices)
+            # mask_roi = mask[top:bottom + 1, left:right + 1]
+            # image_roi = image[top:bottom + 1, left:right + 1]
+            mask_center_x, mask_center_y = (right + left) / 2, (top + bottom) / 2
+
+
+        rotation_matrix = cv2.getRotationMatrix2D((mask_center_x, mask_center_y), -rotation_angle, resize_scale)
+        rotation_matrix[0, 2] += dx
+        rotation_matrix[1, 2] += dy
+
+        transformed_image = cv2.warpAffine(ori_img, rotation_matrix, (width, height))
+        transformed_mask = cv2.warpAffine(target_mask.astype(np.uint8), rotation_matrix, (width, height),
+                                          flags=cv2.INTER_NEAREST).astype(bool)
+
+
+        # 检查是否需要水平翻转
+        if flip_horizontal:
+            transformed_image = cv2.flip(transformed_image, 1)
+            transformed_mask = cv2.flip(transformed_mask, 1)
+
+
+        # 检查是否需要垂直翻转
+        if flip_vertical:
+            transformed_image = cv2.flip(transformed_image, 0)
+            transformed_mask = cv2.flip(transformed_mask, 0)
+
+
+
+        final_image = np.where(transformed_mask[:, :, None], transformed_image, semantic_repaired) #move with expansion pixels but inpaint
+        return final_image, image_with_hole, transformed_mask
+
+
+    def Magic_Editing_Baseline_2D(self, original_image,prompt, INP_prompt,selected_points,
+                                  seed, guidance_scale, num_step, max_resolution, mode, dilate_kernel_size, start_step, resize_scale,
+                                  rotation_angle, flip_horizontal,flip_vertical,eta=0, use_mask_expansion=True,contrast_beta=1.67, mask_threshold=0.1, mask_threshold_target=0.1, end_step=10,
+                                feature_injection=True, FI_range=(900, 680),sim_thr=0.5, DIFT_LAYER_IDX=[0, 1, 2, 3], use_sdsa=True,select_mask=None,
+                                  ):
 
         seed_everything(seed)
-        # select and resize
         img = original_image
-        img, input_scale = resize_numpy_image(img, max_resolution * max_resolution)
-        print(img.shape)  # 768
-        print(input_scale)
-        print(f'loading original mask shape{mask.shape}')
-        print(f'img[222,222,0]:{img[222, 222, 0]} check BGR RGB')
-        if standard_drawing:  # box only input
-            mask_to_use = mask
-            if input_scale != 1:
-                mask_to_use, _ = resize_numpy_image(mask_to_use, max_resolution * max_resolution,mask_input=True)
-            if strong_inpaint:
-                target_mask = mask_to_use
-            return_target = False
-
-        else:
-            mask_to_use = mask_ref
-            if len(mask_ref) > 1:
-                mask_to_use, _ = resize_numpy_image(mask_to_use, max_resolution * max_resolution,mask_input=True)
-                return_target = False
-                if strong_inpaint:
-                    if cross_enhance:  # use box mask to retain
-                        target_mask, _ = resize_numpy_image(mask, max_resolution * max_resolution)
-                        target_mask = np.array(self.dilate_mask(target_mask, dilate_kernel_size) * 255)
-                    else:  # use strict expansion mask to retain
-                        return_target = True
+        if select_mask is None:
+            print(f'generating original image mask')
+            orw,orh = img.shape[:2]
+            mask, in_w, img = self.get_mask_from_rembg(img, size=[max_resolution, max_resolution])
+            input_scale = in_w / orw
+            print(f'input scale:{input_scale}')
+        else:  # resize + mask resize
+            print(f'input selected mask : Yes')
+            orw, orh = img.shape[:2]
+            img, in_w = self.get_mask_from_rembg(img, size=[max_resolution, max_resolution], need_mask=False)
+            input_scale = in_w / orw
+            print(f'input scale:{input_scale}')
+            w, h = img.shape[:2]
+            mask = cv2.resize(select_mask, (h, w))
+            if mask.ndim == 3:
+                mask = mask[:,:,0]
+        assert mask.shape[:2] == img.shape[:2],f'mask shape{mask.shape} while img shape{img.shape}'
         print(selected_points)
         # get move
         x = []
@@ -3560,40 +3638,61 @@ class ClawerModel_v2(StableDiffusionPipeline):
         dx = int(dx * input_scale)
         dy = int(dy * input_scale)
 
-        # mask expansion in ddim inv which can be used for editing directly in this pipe
+        target_mask = mask
+        mask_to_use = self.dilate_mask(mask, dilate_kernel_size)  # dilate for better expansion mask
+
+
+        # mask expansion
         if use_mask_expansion:
-            obj_mask = mask_to_use
-            mask_to_use = self.dilate_mask(mask_to_use, dilate_kernel_size) * 255  # dilate for better expansion mask
+            print(f'mask expansion is allowed')
+            self.controller.contrast_beta = contrast_beta  # numpy input
+            expand_mask, _ = self.DDIM_inversion_mask_expansion_func(img=img, mask=mask_to_use, prompt="",
+                                                                     guidance_scale=1, num_step=10,
+                                                                     start_step=2,
+                                                                     roi_expansion=True,
+                                                                     mask_threshold=mask_threshold,
+                                                                     post_process='hard', )
+        else:
+            print(f'mask expansion is forbid')
+            expand_mask = mask_to_use
+
+        img_preprocess, inpaint_mask_vis, shifted_mask = self.move_and_inpaint(img,expand_mask,dx, dy,self.inpainter, mode, INP_prompt, resize_scale,  rotation_angle,
+                                                                                                                target_mask, flip_horizontal, flip_vertical)
+
+        mask_to_use = shifted_mask
+        # mask_to_use = self.dilate_mask(shifted_mask, dilate_kernel_size) * 255  # dilate for better expansion mask
+        ori_img = img
+        img = img_preprocess
+        if isinstance(img, np.ndarray):
+            img_preprocess = Image.fromarray(img_preprocess)
         self.controller.contrast_beta = contrast_beta
-        expand_mask, inverted_latent = self.DDIM_inversion_mask_expansion_func(img=img, mask=mask_to_use, prompt="",
-                                                                               guidance_scale=1, num_step=num_step,start_step=start_step,
-                                                                               roi_expansion=True,
-                                                                               mask_threshold=mask_threshold,
-                                                                               post_process='hard',
-                                                                               use_mask_expansion=use_mask_expansion)  # ndarray mask
-        # self.temp_view(expand_mask)
-        # if not use expansion mask , returned expand_mask = mask_to_use
-        # prepare intermediate transformation mask
-        # continuous_transformed_mask_list = self.prepare_continuous_transformed_mask(expand_mask, dx, dy, resize_scale,
-        #                                                                             rotation_angle,
-        #                                                                             flip_horizontal, flip_vertical,
-        #                                                                             motion_split_steps, )
+        expand_shift_mask, inverted_latent = self.DDIM_inversion_mask_expansion_func(img=img, mask=mask_to_use,
+                                                                                     prompt="",
+                                                                                     guidance_scale=1,
+                                                                                     num_step=num_step,
+                                                                                     start_step=start_step,
+                                                                                     roi_expansion=True,
+                                                                                     mask_threshold=mask_threshold_target,
+                                                                                     post_process='hard',
+                                                                                     use_mask_expansion=False,
+                                                                                     ref_img=ori_img)  # ndarray mask
 
-        ori_gen_image, edit_gen_image,noised_optimized_image,candidate_mask = self.ReggioRecurrentEdit(img, inverted_latent, prompt,
-                                                                        expand_mask,dx,dy,resize_scale,rotation_angle,
-                                                                        motion_split_steps,
-                                                                        num_steps=num_step,
-                                                                        start_step=start_step,
-                                                                        end_step = end_step,
-                                                                        guidance_scale=guidance_scale,
-                                                                        eta=eta,
-                                                                        roi_expansion=True,
-                                                                        mask_threshold=mask_threshold_target,
-                                                                        post_process='hard',
-                                                                        max_times=max_times,
-                                                                        sim_thr=sim_thr,lr=lr,lam=lam)
-
-        return [ori_gen_image], [edit_gen_image], [noised_optimized_image], [candidate_mask]
+        edit_gen_image, refer_gen_image, target_mask, = self.ReggioEdit3D(img, inverted_latent, prompt,
+                                                                          expand_shift_mask, target_mask,
+                                                                          num_steps=num_step, start_step=start_step,
+                                                                          end_step=end_step,
+                                                                          guidance_scale=guidance_scale, eta=eta,
+                                                                          roi_expansion=True,
+                                                                          mask_threshold=mask_threshold_target,
+                                                                          post_process='hard',
+                                                                          feature_injection=feature_injection,
+                                                                          FI_range=FI_range, sim_thr=sim_thr,
+                                                                          dilate_kernel_size=dilate_kernel_size,
+                                                                          DIFT_LAYER_IDX=DIFT_LAYER_IDX,
+                                                                          use_sdsa=use_sdsa, ref_img=ori_img)
+        # target_mask = Image.fromarray(target_mask)
+        inpaint_mask_vis = Image.fromarray(inpaint_mask_vis)
+        return [edit_gen_image], [refer_gen_image], [img_preprocess], [inpaint_mask_vis], [target_mask]
     def normalize_expansion_mask(self,mask,exp_mask,roi_expansion):
         if roi_expansion:
             candidate_mask = torch.ones_like(exp_mask)
@@ -4199,11 +4298,13 @@ class ClawerModel_v2(StableDiffusionPipeline):
         return h_feature
 
     @torch.no_grad()
-    def prepare_foreground_mask(self,shifted_mask,ori_mask,sup_res_w,sup_res_h,init_code):
+    def prepare_various_mask(self, shifted_mask, ori_mask, sup_res_w, sup_res_h, init_code):
+        shifted_mask_tensor_dilated = self.prepare_tensor_mask(self.dilate_mask(shifted_mask,15),sup_res_w,sup_res_h)
         shifted_mask_tensor = self.prepare_tensor_mask(shifted_mask,sup_res_w,sup_res_h)
         ori_mask_tensor = self.prepare_tensor_mask(ori_mask, sup_res_w, sup_res_h)
-        foreground_latent_region = shifted_mask_tensor + ori_mask_tensor
+        foreground_latent_region = shifted_mask_tensor_dilated + ori_mask_tensor
         foreground_latent_region[foreground_latent_region > 0.0] = 1
+        local_variance_reg = (1-shifted_mask_tensor) *  shifted_mask_tensor_dilated
         shifted_mask_tensor[shifted_mask_tensor > 0.0] = 1
         latent_foreground_masks = F.interpolate(foreground_latent_region.unsqueeze(0).unsqueeze(0),
                                                 (init_code.shape[2], init_code.shape[3]),
@@ -4211,7 +4312,10 @@ class ClawerModel_v2(StableDiffusionPipeline):
         obj_dilation_mask = F.interpolate(shifted_mask_tensor.unsqueeze(0).unsqueeze(0),
                                                 (init_code.shape[2], init_code.shape[3]),
                                                 mode='nearest').squeeze(0, 1)
-        return latent_foreground_masks,obj_dilation_mask
+        local_variance_reg = F.interpolate(local_variance_reg.unsqueeze(0).unsqueeze(0),
+                                          (init_code.shape[2], init_code.shape[3]),
+                                          mode='nearest').squeeze(0, 1)
+        return latent_foreground_masks,obj_dilation_mask,local_variance_reg
 
     def prepare_tensor_mask(self,mask,sup_res_w,sup_res_h):
         # mask interpolation
@@ -4256,9 +4360,9 @@ class ClawerModel_v2(StableDiffusionPipeline):
         print(f'full_h:{full_h};full_w:{full_w}')
         sup_res_h = int(0.5 * full_h)
         sup_res_w = int(0.5 * full_w)
-        # dilated_shifted_mask = self.dilate_mask(shifted_mask, 5) * 255  # dilate for better expansion mask
-        foreground_mask,object_mask = self.prepare_foreground_mask(shifted_mask,ori_mask,sup_res_w,sup_res_h,init_code_orig)
 
+        foreground_mask,object_mask,local_var_reg = self.prepare_various_mask(shifted_mask, ori_mask, sup_res_w, sup_res_h, init_code_orig)
+        # object_mask = self.dilate_mask(object_mask,15)
         # h_feature = self.prepare_h_feature(init_code_orig,t,edit_prompt,BG_preservation=False,foreground_mask=foreground_mask,lr=0.1,lam=0.1,eta=1.0)
 
 
@@ -4307,6 +4411,7 @@ class ClawerModel_v2(StableDiffusionPipeline):
             eta=eta,
             foreground_mask=foreground_mask,
             obj_mask=object_mask,
+            local_var_reg=local_var_reg ,
             feature_injection_allowed = feature_injection,
             feature_injection_timpstep_range= FI_range,
             use_sdsa=use_sdsa,

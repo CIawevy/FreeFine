@@ -3,8 +3,8 @@ from src.demo.download import download_all
 import os
 os.environ["CUDA_VISIBLE_DEVICES"]="0"
 from simple_lama_inpainting import SimpleLama
-from src.demo.demo import create_my_demo,create_my_demo_full_2D,create_my_demo_full_3D_magic,create_my_demo_full_2D_ctn
-from src.demo.demo_v2 import create_my_demo_full_SV3D_magic,create_my_demo_full_SV3D_multi_obj_case
+from src.demo.demo import create_my_demo_full_3D_magic
+from src.demo.demo_v2 import create_my_demo_full_SV3D_magic,create_my_demo_full_SV3D_multi_obj_case,create_my_demo_full_2D_magic
 from src.demo.model import ClawerModels,ClawerModel_v2
 from src.unet.unet_2d_condition import DragonUNet2DConditionModel
 import torch
@@ -24,6 +24,7 @@ device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('
 
 pretrained_inpaint_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-inpainting/"
 # pretrained_inpaint_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-2-inpainting/"
+
 sd_inpainter = StableDiffusionInpaintPipeline.from_pretrained(
     pretrained_inpaint_model_path,
     revision="fp16",
@@ -83,23 +84,19 @@ model.enable_attention_slicing()
 model.enable_xformers_memory_efficient_attention()
 DESCRIPTION = '# 🐉🐉[Reggio V1.0](https://github.com/CIawevy/Reggio)🐉🐉'
 
-DESCRIPTION += f'<p>Gradio demo for [Reggio](https://arxiv.org/abs/2307.02421) and [DiffEditor](https://arxiv.org/abs/2307.02421). If it is helpful, please help to recommend [[GitHub Repo]](https://github.com/CIawevy/Reggio) to your friends 😊 </p>'
+DESCRIPTION += f'<p>Gradio demo for [Reggio](https://arxiv.org/abs/2307.02421). If it is helpful, please help to recommend [[GitHub Repo]](https://github.com/CIawevy/Reggio) to your friends 😊 </p>'
 
 with gr.Blocks(css='style.css') as demo:
     gr.Markdown(DESCRIPTION)
     with gr.Tabs():
-        #TODO:
-        # 1.2D Pipe latest version
-        # 2.3D multi-object version
-
-        # with gr.TabItem('2D continuous editing pipeline'):
-        #     create_my_demo_full_2D_ctn(model.Continuous_Editing_Baseline_2D)
+        with gr.TabItem('2D Magical editing pipeline'):
+            create_my_demo_full_2D_magic(model.Magic_Editing_Baseline_2D)
         with gr.TabItem('3D Magical editing pipeline'):
             create_my_demo_full_3D_magic(model.Magic_Editing_Baseline_3D)
         with gr.TabItem('SV3D Magical Auto-Mask Editing pipeline'):
             create_my_demo_full_SV3D_magic(model.Magic_Editing_Baseline_SV3D)
-        with gr.TabItem('SV3D Magical Multi-Obj-selected Editing pipeline'):
-            create_my_demo_full_SV3D_multi_obj_case(model.Magic_Editing_Baseline_SV3D)
+        # with gr.TabItem('SV3D Magical Multi-Obj-selected Editing pipeline'):
+        #     create_my_demo_full_SV3D_multi_obj_case(model.Magic_Editing_Baseline_SV3D)
 
 demo.queue(concurrency_count=3, max_size=20)
 # demo.launch(server_name="0.0.0.0")

@@ -691,7 +691,13 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         h,seq_len,_ = attn.shape #head
         m_h,m_w = mask.shape
         d_ratio = (m_h * m_w // seq_len) ** 0.5
-        attn_h,attn_w = int(m_h / d_ratio+0.5),int(m_w / d_ratio+0.5)
+        try:
+            attn_h,attn_w = int(m_h / d_ratio+0.5),int(m_w / d_ratio+0.5)
+            assert attn_h*attn_w == seq_len
+        except:
+            attn_h,attn_w = int(m_h / d_ratio),int(m_w / d_ratio)
+            assert attn_h * attn_w == seq_len,'shape error'
+
         mask = mask.unsqueeze(0).unsqueeze(0)
         downsampled_mask = F.interpolate(mask, size=(attn_h, attn_w), mode='nearest')
         mask_index = (downsampled_mask > 0.5).squeeze(0).squeeze(0).flatten()#obj mask -> down sampled obj mask
@@ -817,9 +823,15 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         mask[mask>0] = 1
         # PROCESS MASK
         h, w = mask.shape
-        d_ratio = int((h * w // seq) ** 0.5)
+        d_ratio = (h * w // seq) ** 0.5
+        try:
+            attn_h,attn_w = int(h / d_ratio+0.5),int(w / d_ratio+0.5)
+            assert attn_h*attn_w == seq
+        except:
+            attn_h,attn_w = int(h / d_ratio),int(w / d_ratio)
+            assert attn_h * attn_w == seq,"shape error"
         # down sample
-        mask=F.interpolate(mask.unsqueeze(0).unsqueeze(0), size=(int(h / d_ratio+0.5), int(w / d_ratio+0.5)),
+        mask=F.interpolate(mask.unsqueeze(0).unsqueeze(0), size=(attn_h,attn_w),
                                  mode='nearest').squeeze(0, 1)
         return mask,d_ratio
     def post_process_attn_mask(self,mask):
@@ -861,9 +873,15 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         # edit_mask = self.SDSA_EDIT_MASK
         half_seq = seq // 2
         h,w = SDSA_REF_MASK_STEP.shape
-        d_ratio = int((h*w // half_seq )**0.5)
+        d_ratio = (h * w // half_seq) ** 0.5
+        try:
+            attn_h,attn_w = int(h / d_ratio+0.5),int(w / d_ratio+0.5)
+            assert attn_h*attn_w == half_seq
+        except:
+            attn_h,attn_w = int(h / d_ratio),int(w / d_ratio)
+            assert attn_h * attn_w == half_seq,"shape error"
         #down sample
-        ref_mask = F.interpolate(SDSA_REF_MASK_STEP.unsqueeze(0).unsqueeze(0), size=(int(h/d_ratio+0.5), int(w/d_ratio+0.5)), mode='nearest').squeeze(0,1).flatten()
+        ref_mask = F.interpolate(SDSA_REF_MASK_STEP.unsqueeze(0).unsqueeze(0), size=(attn_h,attn_w), mode='nearest').squeeze(0,1).flatten()
 
         mask = torch.zeros((b, seq, seq), dtype=value.dtype,device=value.device)
         mask[:, :half_seq, :half_seq] = 1
@@ -1010,9 +1028,15 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         )
         local_region = self.obj_mask
         h, w = local_region.shape
-        d_ratio = int((h * w // sequence_length) ** 0.5)
+        d_ratio = (h * w // sequence_length) ** 0.5
+        try:
+            attn_h, attn_w = int(h / d_ratio + 0.5), int(w / d_ratio + 0.5)
+            assert attn_h * attn_w == sequence_length
+        except:
+            attn_h, attn_w = int(h / d_ratio), int(w / d_ratio)
+            assert attn_h * attn_w == sequence_length, "shape error"
         # down sample
-        local_region = F.interpolate(local_region.unsqueeze(0).unsqueeze(0), size=(int(h / d_ratio+0.5),int( w // d_ratio+0.5)),
+        local_region = F.interpolate(local_region.unsqueeze(0).unsqueeze(0), size=(attn_h,attn_w),
                                  mode='nearest').squeeze(0, 1).flatten()
 
         query = self.head_to_batch_dim(query)
@@ -1039,9 +1063,15 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         self.DIFT_FEATURE_INJ = False
     def inter_mask(self,hw,mask):
         mask[mask>0] = 1
-        mask_h, mask_w = mask.shape
-        d_ratio = ((mask_h * mask_w) / hw)**0.5
-        h, w = int(mask_h / d_ratio+0.5), int(mask_w / d_ratio+0.5)
+        h, w = mask.shape
+        d_ratio = (h * w // hw) ** 0.5
+        try:
+            attn_h, attn_w = int(h / d_ratio + 0.5), int(w / d_ratio )
+            assert attn_h * attn_w == hw
+        except:
+            attn_h, attn_w = int(h / d_ratio), int(w / d_ratio)
+            assert attn_h * attn_w == hw, "shape error"
+        h, w = attn_h,attn_w
         mask = F.interpolate(mask.unsqueeze(0).unsqueeze(0), size=(h, w), mode='bicubic').squeeze(0, 1)
         return mask,h,w
 

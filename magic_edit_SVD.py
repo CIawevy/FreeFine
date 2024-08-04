@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
+os.environ["CUDA_VISIBLE_DEVICES"]="1"
 from simple_lama_inpainting import SimpleLama
 from src.demo.demo import create_my_demo,create_my_demo_full_2D,create_my_demo_full_3D_magic,create_my_demo_full_2D_ctn
 from src.demo.model import ClawerModel_v2
@@ -168,10 +168,8 @@ trans_img = Image.open(image_path)
 
 output_edit, refer_edit,INP_IMG, INP_Mask, TGT_MSK= model.Magic_Editing_Baseline_SV3D(original_image, transformed_image,prompt, INP_prompt, seed, guidance_scale, num_step,
                                  max_resolution, mode, dilate_kernel_size,
-                                 start_step, tx, ty, tz, rx, ry, rz, sx, sy, sz, None, eta, use_mask_expansion,
-                                 standard_drawing, contrast_beta, strong_inpaint, cross_enhance,
-                                 mask_threshold, mask_threshold_target, blending_alpha, splatting_radius, splatting_tau,
-                                 splatting_points_per_pixel, focal_length,end_step,feature_injection,FI_range,sim_thr,DIFT_LAYER_IDX,use_sdsa,mask)
+                                 start_step, eta, use_mask_expansion,
+                                 contrast_beta,mask_threshold, mask_threshold_target,end_step,feature_injection,FI_range,sim_thr,DIFT_LAYER_IDX,use_sdsa)
 visualize_rgb_image(output_edit[0], title="output_edit")
 visualize_rgb_image(refer_edit[0], title="refer_edit")
 visualize_rgb_image(INP_IMG[0], title="INP_IMG")

@@ -42,7 +42,7 @@ def segment_with_points(
         global_points.append([x, y])
         global_point_label.append(2)
         image_with_point= show_point_or_box(image.copy(), global_points)
-        return image_with_point, original_image, None, global_points, global_point_label, img_direction, original_image
+        return image_with_point, original_image, None, global_points, global_point_label, img_direction,None
     elif len(global_points) == 1:
         global_points.append([x, y])
         global_point_label.append(3)
@@ -78,12 +78,12 @@ def segment_with_points(
         )
         mask = torch.ge(predicted_logits[0, 0, 0, :, :], 0).float().cpu().detach().numpy()
         mask_image = (mask*255.).astype(np.uint8)
-        return image_with_point, original_image, mask_image, global_points, global_point_label, img_direction, original_image
+        return image_with_point, original_image, mask_image, global_points, global_point_label,mask_image
     else:
         global_points=[[x, y]]
         global_point_label=[2]
         image_with_point= show_point_or_box(image.copy(), global_points)
-        return image_with_point, original_image, None, global_points, global_point_label, img_direction, original_image
+        return image_with_point, original_image, None, global_points, global_point_label,None
 
 
 def segment_with_points_paste(
