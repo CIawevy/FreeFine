@@ -178,7 +178,7 @@ model.temp_view(TGT_MSK[0])
 
 
 model.prepare_h_feature()
-model.ReggioEdit3D()
+model.Details_Preserving_regeneration()
 
 model.invert()
 model.forward_sampling_BG()

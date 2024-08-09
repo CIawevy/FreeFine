@@ -172,7 +172,7 @@ visualize_rgb_image(output_edit[0], title="output_edit")
 
 
 model.prepare_h_feature()
-model.ReggioEdit3D()
+model.Details_Preserving_regeneration()
 
 model.invert()
 model.forward_sampling_BG()

@@ -3,10 +3,12 @@ from src.utils.utils import resize_numpy_image,get_inw, split_ldm, process_move,
 from src.utils.inversion import DDIMInversion
 from src.utils.geometric_utils import Integrated3DTransformAndInpaint
 from src.utils.geo_utils import IntegratedP3DTransRasterBlendingFull,param2theta,wrapAffine_tensor,PartialConvInterpolation,tensor_inpaint_fmm,calculate_cosine_similarity_between_batches
-import time
 from diffusers.utils.torch_utils import  randn_tensor
 import time
+from typing import List, Union
+import clip
 from einops import rearrange
+import spacy
 import os
 from copy import deepcopy
 import cv2
@@ -16,6 +18,7 @@ from torchvision.transforms import PILToTensor
 import numpy as np
 from basicsr.utils import img2tensor
 from src.utils.alignment import align_face, get_landmark
+
 import dlib
 import torch
 import torch.nn.functional as F
@@ -706,7 +709,7 @@ class ClawerModels(StableDiffusionPipeline):
         if isinstance(image, Image.Image):
             image = np.array(image)
         if inp_prompt is None:
-            inp_prompt = 'empty scene'
+            inp_prompt = 'a photo of a background, a photo of an empty place'
         # 将掩码转换为灰度并应用阈值
         if mask.ndim == 3 and mask.shape[2] == 3:
             mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
@@ -825,7 +828,7 @@ class ClawerModels(StableDiffusionPipeline):
         if isinstance(image, Image.Image):
             image = np.array(image)
         if inp_prompt is None:
-            inp_prompt = 'empty scene'
+            inp_prompt = 'a photo of a background, a photo of an empty place'
         # 将掩码转换为灰度并应用阈值
         if mask.ndim == 3 and mask.shape[2] == 3:
             mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
@@ -833,7 +836,7 @@ class ClawerModels(StableDiffusionPipeline):
 
         if target_mask.ndim == 3 and target_mask.shape[2] == 3:
             target_mask = cv2.cvtColor(target_mask, cv2.COLOR_BGR2GRAY)
-            # target_mask =target_mask > 128
+            # source_mask =source_mask > 128
 
         mask = mask.astype(bool)
         target_mask = target_mask.astype(bool)
@@ -841,7 +844,7 @@ class ClawerModels(StableDiffusionPipeline):
                 transformed_image_target_only, sparse_transformed_target_mask, transformed_depth = Integrated3DTransformAndInpaint(image,depth_map,
                                                                                                                transforms,
                                                                                                                FX, FY,
-                                                                                                               target_mask,object_only,
+                                                                                                               source_mask,object_only,
                                                                                                                inpaint=False)
         _, sparse_transformed_expand_mask, _   = Integrated3DTransformAndInpaint(image,depth_map,transforms, FX, FY, mask,object_only,inpaint=False)
 
@@ -2816,12 +2819,12 @@ class ClawerModel_v2(StableDiffusionPipeline):
             blending = True,
             feature_injection_allowed=True,
             feature_injection_timpstep_range=(900, 600),
-            use_sdsa=True,
+            use_mtsa=True,
             **kwds):
         DEVICE = self.device
         assert guidance_scale > 1.0,'USING THIS MODULE CFG Must > 1.0'
         self.controller.use_cfg = True
-        self.controller.share_attn = use_sdsa #allow SDSA
+        self.controller.share_attn = use_mtsa #allow SDSA
         self.controller.local_edit = True
         if prompt_embeds is None:
             if isinstance(prompt, list):
@@ -2900,7 +2903,7 @@ class ClawerModel_v2(StableDiffusionPipeline):
             ref_latent = refer_latents[i - start_step + 1][1]
             latents[1] = ref_latent
             if i<50 - end_step:
-                self.controller.share_attn = use_sdsa  # allow SDSA
+                self.controller.share_attn = use_mtsa  # allow SDSA
             else:
                 self.controller.share_attn = False
                 # h_feature = torch.cat([h_feature] * 2)
@@ -2915,7 +2918,7 @@ class ClawerModel_v2(StableDiffusionPipeline):
                     text_embeddings = torch.cat([unconditioning[i].expand(*text_embeddings.shape), text_embeddings])
                 # predict the noise
                 # if guidance_scale > 1:
-                self.controller.log_mask = True
+                self.controller.log_mask = False
                 if i < 50 - end_step:
                     noise_pred = self.unet(model_inputs, t, encoder_hidden_states=text_embeddings,
                                            h_sample=h_feature_inputs)
@@ -2941,6 +2944,71 @@ class ClawerModel_v2(StableDiffusionPipeline):
             return image, latents_list
         return image
 
+    @torch.no_grad()
+    def Expansion_invert(
+            self,
+            image: torch.Tensor,
+            assist_prompt,
+            num_inference_steps=50,
+            num_actual_inference_steps=None,
+            **kwds):
+
+        """
+        invert a real image into noise map with determinisc DDIM inversion
+        """
+        DEVICE = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+        batch_size = image.shape[0]
+        assert batch_size==1,">1 bs not implemented yet"
+        # if isinstance(assist_prompt, list):
+        #     if batch_size == 1:
+        image = image.expand(len(assist_prompt), -1, -1, -1)
+        prompt = assist_prompt
+
+        # text embeddings
+        text_input = self.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=77,
+            return_tensors="pt"
+        )
+        text_embeddings = self.text_encoder(text_input.input_ids.to(DEVICE))[0]
+        # print("input text embeddings :", text_embeddings.shape)
+        # define initial latents
+        latents = self.image2latent(image)
+
+        # max_length = text_input.input_ids.shape[-1]
+        unconditional_input = self.tokenizer(
+            [""] * len(prompt),
+            padding="max_length",
+            max_length=77,
+            return_tensors="pt"
+        )
+        unconditional_embeddings = self.text_encoder(unconditional_input.input_ids.to(DEVICE))[0]
+        text_embeddings = torch.cat([unconditional_embeddings, text_embeddings], dim=0)
+        self.controller.use_cfg = True
+        self.controller.bidirectional_loc = True
+        # interative sampling
+
+        self.scheduler.set_timesteps(num_inference_steps)
+        # DIFT_STEP = int(261/1000*num_inference_steps)
+        # t_dift = self.scheduler.timesteps[num_inference_steps-DIFT_STEP-1]
+        # print("Valid timesteps: ", reversed(self.scheduler.timesteps))
+        # print("attributes: ", self.scheduler.__dict__)
+        for i, t in enumerate(tqdm(reversed(self.scheduler.timesteps), desc="DDIM Inversion")):
+            if num_actual_inference_steps is not None and i > num_actual_inference_steps:
+                continue
+            elif i==len(self.scheduler.timesteps)-1:
+                self.controller.last_step = True
+
+            model_inputs = torch.cat([latents] * 2)
+            # t= t_dift
+            # predict the noise
+            noise_pred = self.unet(model_inputs, t, encoder_hidden_states=text_embeddings)
+            noise_pred_uncon, noise_pred_con = noise_pred.chunk(2, dim=0)
+            noise_pred = noise_pred_uncon
+            # compute the previous noise sample x_t-1 -> x_t
+            latents, pred_x0 = self.inv_step(noise_pred, t, latents)
+        return latents
     @torch.no_grad()
     def invert(
             self,
@@ -3153,13 +3221,13 @@ class ClawerModel_v2(StableDiffusionPipeline):
         if isinstance(trans_img, Image.Image):
             trans_img = np.array(trans_img)
         if inp_prompt is None:
-            inp_prompt = 'empty scene'
+            inp_prompt = 'a photo of a background, a photo of an empty place'
         if ori_mask.ndim == 3 and ori_mask.shape[2] == 3:
             ori_mask = cv2.cvtColor(ori_mask, cv2.COLOR_BGR2GRAY)
             # mask = mask > 128
         if trans_mask.ndim == 3 and trans_mask.shape[2] == 3:
             trans_mask = cv2.cvtColor(trans_mask, cv2.COLOR_BGR2GRAY)
-            # target_mask =target_mask > 128
+            # source_mask =source_mask > 128
 
 
 
@@ -3211,7 +3279,7 @@ class ClawerModel_v2(StableDiffusionPipeline):
         if isinstance(image, Image.Image):
             image = np.array(image)
         if inp_prompt is None:
-            inp_prompt = 'empty scene'
+            inp_prompt = 'a photo of a background, a photo of an empty place'
         # 将掩码转换为灰度并应用阈值
         if mask.ndim == 3 and mask.shape[2] == 3:
             mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
@@ -3219,7 +3287,7 @@ class ClawerModel_v2(StableDiffusionPipeline):
 
         if target_mask.ndim == 3 and target_mask.shape[2] == 3:
             target_mask = cv2.cvtColor(target_mask, cv2.COLOR_BGR2GRAY)
-            # target_mask =target_mask > 128
+            # source_mask =source_mask > 128
 
         mask = mask.astype(bool)
         target_mask = target_mask.astype(bool)
@@ -3368,20 +3436,20 @@ class ClawerModel_v2(StableDiffusionPipeline):
         # mask expansion
         if return_target:
             self.controller.contrast_beta = contrast_beta * 100
-            target_mask, _ = self.DDIM_inversion_mask_expansion_func(img=img, mask=mask_to_use, prompt="",
-                                                                                   guidance_scale=1, num_step=10,
-                                                                                   start_step=2,
-                                                                                   roi_expansion=True,
-                                                                                   mask_threshold=mask_threshold,
-                                                                                   post_process='hard',)
+            target_mask, _ = self.DDIM_inversion_func(img=img, mask=mask_to_use, prompt="",
+                                                      guidance_scale=1, num_step=10,
+                                                      start_step=2,
+                                                      roi_expansion=True,
+                                                      mask_threshold=mask_threshold,
+                                                      post_process='hard', )
         if use_mask_expansion:
             self.controller.contrast_beta = contrast_beta
-            expand_mask, _ = self.DDIM_inversion_mask_expansion_func(img=img, mask=mask_to_use, prompt="",
-                                                                     guidance_scale=1, num_step=10,
-                                                                     start_step=2,
-                                                                     roi_expansion=True,
-                                                                     mask_threshold=mask_threshold,
-                                                                     post_process='hard', )
+            expand_mask, _ = self.DDIM_inversion_func(img=img, mask=mask_to_use, prompt="",
+                                                      guidance_scale=1, num_step=10,
+                                                      start_step=2,
+                                                      roi_expansion=True,
+                                                      mask_threshold=mask_threshold,
+                                                      post_process='hard', )
         else:
             expand_mask = mask_to_use
 
@@ -3397,20 +3465,20 @@ class ClawerModel_v2(StableDiffusionPipeline):
         if isinstance(img, np.ndarray):
             img_preprocess = Image.fromarray(img_preprocess)
         self.controller.contrast_beta = contrast_beta
-        expand_shift_mask, inverted_latent = self.DDIM_inversion_mask_expansion_func(img=img, mask=mask_to_use, prompt="",
-                                                                               guidance_scale=1, num_step=num_step,start_step=start_step,
-                                                                               roi_expansion=True,
-                                                                               mask_threshold=mask_threshold_target,
-                                                                               post_process='hard',
-                                                                               use_mask_expansion=False,ref_img=ori_img)  # ndarray mask
+        expand_shift_mask, inverted_latent = self.DDIM_inversion_func(img=img, mask=mask_to_use, prompt="",
+                                                                      guidance_scale=1, num_step=num_step, start_step=start_step,
+                                                                      roi_expansion=True,
+                                                                      mask_threshold=mask_threshold_target,
+                                                                      post_process='hard',
+                                                                      use_mask_expansion=False, ref_img=ori_img)  # ndarray mask
 
 
-        edit_gen_image,refer_gen_image, target_mask, = self.ReggioEdit3D(img,  inverted_latent, prompt, expand_shift_mask, target_mask, num_steps=num_step, start_step=start_step,
-                                                                end_step=end_step, guidance_scale=guidance_scale, eta=eta, roi_expansion=True,
-                                                                mask_threshold=mask_threshold_target,post_process='hard',feature_injection=feature_injection,
-                                                                FI_range=FI_range,sim_thr=sim_thr,dilate_kernel_size=dilate_kernel_size,DIFT_LAYER_IDX=DIFT_LAYER_IDX,
-                                                                use_sdsa=use_sdsa,ref_img=ori_img)
-        # target_mask = Image.fromarray(target_mask)
+        edit_gen_image,refer_gen_image, target_mask, = self.Details_Preserving_regeneration(img, inverted_latent, prompt, expand_shift_mask, target_mask, num_steps=num_step, start_step=start_step,
+                                                                                            end_step=end_step, guidance_scale=guidance_scale, eta=eta, roi_expansion=True,
+                                                                                            mask_threshold=mask_threshold_target, post_process='hard', feature_injection=feature_injection,
+                                                                                            FI_range=FI_range, sim_thr=sim_thr, dilate_kernel_size=dilate_kernel_size, DIFT_LAYER_IDX=DIFT_LAYER_IDX,
+                                                                                            use_sdsa=use_sdsa, ref_img=ori_img)
+        # source_mask = Image.fromarray(source_mask)
         inpaint_mask_vis = Image.fromarray(inpaint_mask_vis)
         return  [edit_gen_image],[refer_gen_image],[img_preprocess],[inpaint_mask_vis],[target_mask],[depth_plot]
     def get_mask_from_rembg(self,trans_img,size=None,need_mask=True):
@@ -3472,12 +3540,12 @@ class ClawerModel_v2(StableDiffusionPipeline):
         # mask expansion
         if use_mask_expansion:
             self.controller.contrast_beta = contrast_beta #numpy input
-            expand_mask, _ = self.DDIM_inversion_mask_expansion_func(img=img, mask=mask_to_use, prompt="",
-                                                                     guidance_scale=1, num_step=10,
-                                                                     start_step=2,
-                                                                     roi_expansion=True,
-                                                                     mask_threshold=mask_threshold,
-                                                                     post_process='hard', )
+            expand_mask, _ = self.DDIM_inversion_func(img=img, mask=mask_to_use, prompt="",
+                                                      guidance_scale=1, num_step=10,
+                                                      start_step=2,
+                                                      roi_expansion=True,
+                                                      mask_threshold=mask_threshold,
+                                                      post_process='hard', )
         else:
             expand_mask = mask_to_use
 
@@ -3490,76 +3558,130 @@ class ClawerModel_v2(StableDiffusionPipeline):
         if isinstance(img, np.ndarray):
             img_preprocess = Image.fromarray(img_preprocess)
         self.controller.contrast_beta = contrast_beta
-        expand_shift_mask, inverted_latent = self.DDIM_inversion_mask_expansion_func(img=img, mask=mask_to_use,
-                                                                                     prompt="",
-                                                                                     guidance_scale=1,
-                                                                                     num_step=num_step,
-                                                                                     start_step=start_step,
-                                                                                     roi_expansion=True,
-                                                                                     mask_threshold=mask_threshold_target,
-                                                                                     post_process='hard',
-                                                                                     use_mask_expansion=False,
-                                                                                     ref_img=ori_img)  # ndarray mask
+        expand_shift_mask, inverted_latent = self.DDIM_inversion_func(img=img, mask=mask_to_use,
+                                                                      prompt="",
+                                                                      guidance_scale=1,
+                                                                      num_step=num_step,
+                                                                      start_step=start_step,
+                                                                      roi_expansion=True,
+                                                                      mask_threshold=mask_threshold_target,
+                                                                      post_process='hard',
+                                                                      use_mask_expansion=False,
+                                                                      ref_img=ori_img)  # ndarray mask
 
-        edit_gen_image, refer_gen_image, target_mask, = self.ReggioEdit3D(img, inverted_latent, prompt,
-                                                                          expand_shift_mask, target_mask,
-                                                                          num_steps=num_step, start_step=start_step,
-                                                                          end_step=end_step,
-                                                                          guidance_scale=guidance_scale, eta=eta,
-                                                                          roi_expansion=True,
-                                                                          mask_threshold=mask_threshold_target,
-                                                                          post_process='hard',
-                                                                          feature_injection=feature_injection,
-                                                                          FI_range=FI_range, sim_thr=sim_thr,
-                                                                          dilate_kernel_size=dilate_kernel_size,
-                                                                          DIFT_LAYER_IDX=DIFT_LAYER_IDX,
-                                                                          use_sdsa=use_sdsa, ref_img=ori_img)
-        # target_mask = Image.fromarray(target_mask)
+        edit_gen_image, refer_gen_image, target_mask, = self.Details_Preserving_regeneration(img, inverted_latent, prompt,
+                                                                                             expand_shift_mask, target_mask,
+                                                                                             num_steps=num_step, start_step=start_step,
+                                                                                             end_step=end_step,
+                                                                                             guidance_scale=guidance_scale, eta=eta,
+                                                                                             roi_expansion=True,
+                                                                                             mask_threshold=mask_threshold_target,
+                                                                                             post_process='hard',
+                                                                                             feature_injection=feature_injection,
+                                                                                             FI_range=FI_range, sim_thr=sim_thr,
+                                                                                             dilate_kernel_size=dilate_kernel_size,
+                                                                                             DIFT_LAYER_IDX=DIFT_LAYER_IDX,
+                                                                                             use_sdsa=use_sdsa, ref_img=ori_img)
+        # source_mask = Image.fromarray(source_mask)
         inpaint_mask_vis = Image.fromarray(inpaint_mask_vis)
         return [edit_gen_image], [refer_gen_image], [img_preprocess], [inpaint_mask_vis], [target_mask]
 
+    @torch.no_grad()
+    def sd_inpaint_results_filter(self,img_lists,mask,class_text,inp_prompt):
+        #[ndarray,ndarray,.....]
+        #TODO: [] format
+        neg_text = 'an object,a person,text'
+        # 通过mask区域的boundary box裁剪图像
+        cropped_imgs = self.crop_image_with_mask(img_lists, mask)
+        # image = self.clip_process(cropped_img).unsqueeze(0).to(self.device)
+        stack_images = torch.stack([self.clip_process(self.numpy_to_pil(crop_img)[0]).to(self.device) for crop_img in cropped_imgs])
+
+        # 对每个词进行编码
+        text_tokens_CLS = clip.tokenize(class_text).to(self.device)
+        text_tokens_NEG = clip.tokenize(neg_text).to(self.device)
+        text_tokens_BG = clip.tokenize(inp_prompt).to(self.device)
+        text_tokens = torch.cat([text_tokens_CLS,text_tokens_NEG,text_tokens_BG])
+
+        # 计算图像的特征向量
+        image_features = self.clip.encode_image(stack_images)
+        # Calculate the standard deviation of the image embeddings to measure semantic diversity
+        embeddings_std = torch.std(image_features[1:], dim=0).mean()
+        #uncertainty filter
+        if embeddings_std.item() >0.3:
+            print(f'choose lama inpainting results')
+            return img_lists[0]
+
+        # 计算每个词的特征向量
+        text_features = self.clip.encode_text(text_tokens)
+        similarities = torch.cosine_similarity(image_features.unsqueeze(1), text_features.unsqueeze(0), dim=2)
+
+        negative_sim_CLS = similarities[:,0]
+        negative_sim_obj = similarities[:, 1]
+        positive_sim = similarities[:,2]
+        matching_score = positive_sim - negative_sim_CLS - negative_sim_obj
+        final_match_indices =  torch.argmax(matching_score, dim=0).item()
+        if final_match_indices == 0:
+            print(f'choose lama inpainting results')
+        else:
+            print(f'choose sd inpainting results idx:{final_match_indices-1}')
+
+        return img_lists[int(final_match_indices)]
 
 
-
-    def move_and_inpaint(self, ori_img, ori_mask, dx, dy, inpainter=None, mode=None,
-                                             inp_prompt=None,
-                                             resize_scale=1.0, rotation_angle=0,target_mask=None,flip_horizontal=False,flip_vertical=False):
+    def move_and_inpaint(self, ori_img, exp_mask, dx, dy, inpainter=None, mode=None,
+                         inp_prompt=None,inp_prompt_negative=None,obj_text=None, resize_scale=1.0, rotation_angle=0, source_mask=None,
+                         flip_horizontal=False, flip_vertical=False):
 
         # inpaint & replace
         if isinstance(ori_img, Image.Image):
             ori_img = np.array(ori_img)
         if inp_prompt is None:
-            inp_prompt = 'empty scene'
-        if ori_mask.ndim == 3 and ori_mask.shape[2] == 3:
-            ori_mask = cv2.cvtColor(ori_mask, cv2.COLOR_BGR2GRAY)
-        if target_mask.ndim == 3 and target_mask.shape[2] == 3:
-            target_mask = cv2.cvtColor(target_mask, cv2.COLOR_BGR2GRAY)
+            inp_prompt = 'a photo of a background, a photo of an empty place'
+        if exp_mask.ndim == 3 and exp_mask.shape[2] == 3:
+            exp_mask = cv2.cvtColor(exp_mask, cv2.COLOR_BGR2GRAY)
+        if source_mask.ndim == 3 and source_mask.shape[2] == 3:
+            source_mask = cv2.cvtColor(source_mask, cv2.COLOR_BGR2GRAY)
 
 
         #prepare background
-        ori_mask = (ori_mask > 0).astype(bool)
-        ori_image_back_ground = np.where(ori_mask[:, :, None], 0, ori_img).astype(np.uint8)
+        # box mask do not influence sd inpaint
+        # exp_mask = self.box_mask(exp_mask)
+        ori_exp_mask = exp_mask
+        exp_mask = (exp_mask > 0).astype(bool)
+        ori_image_back_ground = np.where(exp_mask[:, :, None], 0, ori_img)
         image_with_hole = ori_image_back_ground
         # print(f'ori_shape:{ori_image_back_ground.shape}')
-        coarse_repaired = np.array(inpainter(Image.fromarray(ori_image_back_ground), Image.fromarray(
-            ori_mask.astype(np.uint8) * 255)))  # lama inpainting filling the black regions
+        # coarse_repaired = np.array(inpainter(Image.fromarray(ori_image_back_ground), Image.fromarray(
+        #     exp_mask.astype(np.uint8) * 255)))  # lama inpainting filling the black regions
+
+        coarse_repaired = inpainter(ori_image_back_ground, exp_mask.astype(np.uint8) * 255,)
+
         if mode != 1:
-            inpaint_mask = Image.fromarray(ori_mask.astype(np.uint8) * 255)
+            inpaint_mask = Image.fromarray(exp_mask.astype(np.uint8) * 255)
             sd_to_inpaint_img = Image.fromarray(coarse_repaired)
             print(f'SD inpainting Processing:')
             semantic_repaired = \
-            self.sd_inpainter(prompt=inp_prompt, image=sd_to_inpaint_img, mask_image=inpaint_mask).images[0]
-            semantic_repaired = np.array(semantic_repaired)
+            self.sd_inpainter(prompt=inp_prompt, image=sd_to_inpaint_img, mask_image=inpaint_mask,guidance_scale=7.5,eta=1.0,
+                              num_inference_steps=10,negative_prompt=inp_prompt_negative,num_images_per_prompt=10).images
+            #resize
+            semantic_repaired_new = []
+            h, w = image_with_hole.shape[:2]
+            for sd_inp_res in semantic_repaired:
+                sd_inp_res = np.array(sd_inp_res)
+                if sd_inp_res.shape != image_with_hole.shape:
+                    # print(f'inpainted image {semantic_repaired.shape} -> original size {image_with_hole.shape}')
+                    sd_inp_res = cv2.resize(sd_inp_res, (w, h), interpolation=cv2.INTER_LANCZOS4)
+                semantic_repaired_new.append(sd_inp_res)
+            #Filter
+            semantic_repaired_new.insert(0, coarse_repaired)
+            semantic_repaired = self.sd_inpaint_results_filter(semantic_repaired_new,ori_exp_mask,obj_text,inp_prompt)
         else:
             semantic_repaired = coarse_repaired
 
-        if semantic_repaired.shape != image_with_hole.shape:
-            print(f'inpainted image {semantic_repaired.shape} -> original size {image_with_hole.shape}')
-            h,w = image_with_hole.shape[:2]
-            semantic_repaired = cv2.resize(semantic_repaired,(w,h),interpolation=cv2.INTER_LANCZOS4)
+
         # Prepare foreground
         height, width = ori_img.shape[:2]
-        y_indices, x_indices = np.where(target_mask)
+        y_indices, x_indices = np.where(source_mask)
         if len(y_indices) > 0 and len(x_indices) > 0:
             top, bottom = np.min(y_indices), np.max(y_indices)
             left, right = np.min(x_indices), np.max(x_indices)
@@ -3573,7 +3695,9 @@ class ClawerModel_v2(StableDiffusionPipeline):
         rotation_matrix[1, 2] += dy
 
         transformed_image = cv2.warpAffine(ori_img, rotation_matrix, (width, height))
-        transformed_mask = cv2.warpAffine(target_mask.astype(np.uint8), rotation_matrix, (width, height),
+        transformed_mask_exp = cv2.warpAffine(exp_mask.astype(np.uint8), rotation_matrix, (width, height),
+                                              flags=cv2.INTER_NEAREST).astype(bool)
+        transformed_mask = cv2.warpAffine(source_mask.astype(np.uint8), rotation_matrix, (width, height),
                                           flags=cv2.INTER_NEAREST).astype(bool)
 
 
@@ -3581,27 +3705,33 @@ class ClawerModel_v2(StableDiffusionPipeline):
         if flip_horizontal:
             transformed_image = cv2.flip(transformed_image, 1)
             transformed_mask = cv2.flip(transformed_mask, 1)
+            transformed_mask_exp = cv2.flip(transformed_mask_exp, 1)
 
 
         # 检查是否需要垂直翻转
         if flip_vertical:
             transformed_image = cv2.flip(transformed_image, 0)
             transformed_mask = cv2.flip(transformed_mask, 0)
+            transformed_mask_exp = cv2.flip(transformed_mask_exp, 0)
 
 
-
-        final_image = np.where(transformed_mask[:, :, None], transformed_image, semantic_repaired) #move with expansion pixels but inpaint
-        return final_image, image_with_hole, transformed_mask
+        ddpm_region = transformed_mask_exp *( 1-transformed_mask)
+        final_image = np.where(transformed_mask_exp[:, :, None], transformed_image, semantic_repaired) #move with expansion pixels but inpaint
+        return final_image, image_with_hole, transformed_mask,ddpm_region
 
 
     def Magic_Editing_Baseline_2D(self, original_image,prompt, INP_prompt,selected_points,
-                                  seed, guidance_scale, num_step, max_resolution, mode, dilate_kernel_size, start_step, resize_scale,
-                                  rotation_angle, flip_horizontal,flip_vertical,eta=0, use_mask_expansion=True,contrast_beta=1.67, mask_threshold=0.1, mask_threshold_target=0.1, end_step=10,
-                                feature_injection=True, FI_range=(900, 680),sim_thr=0.5, DIFT_LAYER_IDX=[0, 1, 2, 3], use_sdsa=True,select_mask=None,
+                                  seed, guidance_scale, num_step, max_resolution, mode, start_step, resize_scale,
+                                  rotation_angle, flip_horizontal,flip_vertical,eta=0, use_mask_expansion=True,expansion_step=4,contrast_beta=1.67, end_step=10,
+                                feature_injection=True, FI_range=(900, 680),sim_thr=0.5, DIFT_LAYER_IDX=[0, 1, 2, 3], use_mtsa=True,select_mask=None,assist_prompt=""
                                   ):
-
+        if isinstance(assist_prompt,str):
+            assist_prompt = [item.strip() for item in assist_prompt.split(',')]
         seed_everything(seed)
         img = original_image
+
+        cv2.imwrite("mask.png",select_mask)
+
         if select_mask is None:
             print(f'generating original image mask')
             orw,orh = img.shape[:2]
@@ -3638,60 +3768,66 @@ class ClawerModel_v2(StableDiffusionPipeline):
         dx = int(dx * input_scale)
         dy = int(dy * input_scale)
 
-        target_mask = mask
-        mask_to_use = self.dilate_mask(mask, dilate_kernel_size)  # dilate for better expansion mask
+        source_mask = mask
+        mask_to_use = mask
 
-
-        # mask expansion
+        #Mask guided prompt locating with CLIP Scores
+        guidance_text = self.ClipWordMatching(img=img, mask=mask_to_use, full_prompt=prompt)
+        print(f'located guidance prompt is "{guidance_text}"')
+        # Prompt guided iterative mask expansion for source img
         if use_mask_expansion:
             print(f'mask expansion is allowed')
             self.controller.contrast_beta = contrast_beta  # numpy input
-            expand_mask, _ = self.DDIM_inversion_mask_expansion_func(img=img, mask=mask_to_use, prompt="",
-                                                                     guidance_scale=1, num_step=10,
-                                                                     start_step=2,
-                                                                     roi_expansion=True,
-                                                                     mask_threshold=mask_threshold,
-                                                                     post_process='hard', )
-        else:
-            print(f'mask expansion is forbid')
-            expand_mask = mask_to_use
+            expand_mask = self.Prompt_guided_mask_expansion_func(img=img, mask=mask_to_use,assist_prompt=assist_prompt,
+                                                                num_step=expansion_step, start_step=1,)
 
-        img_preprocess, inpaint_mask_vis, shifted_mask = self.move_and_inpaint(img,expand_mask,dx, dy,self.inpainter, mode, INP_prompt, resize_scale,  rotation_angle,
-                                                                                                                target_mask, flip_horizontal, flip_vertical)
+
+        else:
+            print(f'mask expansion is Forbiden')
+            expand_mask = mask_to_use
+        INP_prompt_negative = f'object,{guidance_text},shadow'
+        # expand_mask_vis = self.numpy_to_pil(expand_mask)[0]
+        img_preprocess, inpaint_mask_vis, shifted_mask,ddpm_region = self.move_and_inpaint(img,expand_mask,dx, dy,self.inpainter, mode, INP_prompt,INP_prompt_negative,guidance_text, resize_scale,  rotation_angle,
+                                                                                                                source_mask, flip_horizontal, flip_vertical)
 
         mask_to_use = shifted_mask
-        # mask_to_use = self.dilate_mask(shifted_mask, dilate_kernel_size) * 255  # dilate for better expansion mask
+        # mask_to_use = self.dilate_mask(shifted_mask, dilate_kernel_size) * 255
         ori_img = img
         img = img_preprocess
         if isinstance(img, np.ndarray):
-            img_preprocess = Image.fromarray(img_preprocess)
-        self.controller.contrast_beta = contrast_beta
-        expand_shift_mask, inverted_latent = self.DDIM_inversion_mask_expansion_func(img=img, mask=mask_to_use,
-                                                                                     prompt="",
-                                                                                     guidance_scale=1,
-                                                                                     num_step=num_step,
-                                                                                     start_step=start_step,
-                                                                                     roi_expansion=True,
-                                                                                     mask_threshold=mask_threshold_target,
-                                                                                     post_process='hard',
-                                                                                     use_mask_expansion=False,
-                                                                                     ref_img=ori_img)  # ndarray mask
-
-        edit_gen_image, refer_gen_image, target_mask, = self.ReggioEdit3D(img, inverted_latent, prompt,
-                                                                          expand_shift_mask, target_mask,
-                                                                          num_steps=num_step, start_step=start_step,
-                                                                          end_step=end_step,
-                                                                          guidance_scale=guidance_scale, eta=eta,
-                                                                          roi_expansion=True,
-                                                                          mask_threshold=mask_threshold_target,
-                                                                          post_process='hard',
-                                                                          feature_injection=feature_injection,
-                                                                          FI_range=FI_range, sim_thr=sim_thr,
-                                                                          dilate_kernel_size=dilate_kernel_size,
-                                                                          DIFT_LAYER_IDX=DIFT_LAYER_IDX,
-                                                                          use_sdsa=use_sdsa, ref_img=ori_img)
-        # target_mask = Image.fromarray(target_mask)
+            img_preprocess = Image.fromarray(img_preprocess)#VIS
         inpaint_mask_vis = Image.fromarray(inpaint_mask_vis)
+        self.controller.contrast_beta = contrast_beta
+        #DDIM INVERSION
+        shifted_mask, inverted_latent = self.DDIM_inversion_func(img=img, mask=mask_to_use,
+                                                                      prompt="",
+                                                                      num_step=num_step,
+                                                                      start_step=start_step,
+                                                                      ref_img=ori_img)  # ndarray mask
+
+        edit_gen_image, refer_gen_image, = self.Details_Preserving_regeneration(img, inverted_latent,guidance_text,
+                                                                                             shifted_mask, source_mask,
+                                                                                             num_steps=num_step, start_step=start_step,
+                                                                                             end_step=end_step,
+                                                                                             guidance_scale=guidance_scale, eta=eta,
+                                                                                             feature_injection=feature_injection,
+                                                                                             FI_range=FI_range, sim_thr=sim_thr,
+                                                                                             DIFT_LAYER_IDX=DIFT_LAYER_IDX,
+                                                                                             use_mtsa=use_mtsa, ref_img=ori_img, ddpm_region=ddpm_region)
+        if use_mask_expansion:
+            # prompt guided iterative mask expansion for target img
+            print(f'target mask expansion is allowed')
+            self.controller.contrast_beta = contrast_beta  # numpy input
+            target_mask = self.Prompt_guided_mask_expansion_func(img=edit_gen_image, mask=shifted_mask,
+                                                                    assist_prompt=assist_prompt,
+                                                                    num_step=expansion_step,
+                                                                    start_step=1,)
+        else:
+            target_mask = shifted_mask
+        refer_gen_image = self.numpy_to_pil(refer_gen_image)[0]
+        edit_gen_image = self.numpy_to_pil(edit_gen_image)[0]
+
+
         return [edit_gen_image], [refer_gen_image], [img_preprocess], [inpaint_mask_vis], [target_mask]
     def normalize_expansion_mask(self,mask,exp_mask,roi_expansion):
         if roi_expansion:
@@ -3856,74 +3992,21 @@ class ClawerModel_v2(StableDiffusionPipeline):
 
         return threshold
 
-
-    def Mask_post_process(self,expand_mask, ref_mask, mask_threshold,type,control_value=0.15,control_point=1,adp_k=5,use_contrast=True,contrast_beta=1.67):
+    def Mask_post_process(self, binary_mask, ref_mask, type):
 
         ref_mask_bool = ref_mask > 0
         # 找到原始mask的边缘像素
         edge_pixels = self.find_edge_pixels(ref_mask_bool)
         edge_coords = torch.nonzero(edge_pixels, as_tuple=False)
 
-        #expansion mask process hard / soft
-        # if type=='soft':
-        #     # adaptive_mask_threshold = self.get_self_adaptive_init_thr(ref_mask,mask_threshold,adp_k)
-        #     # print(f'adaptive_thr : {adaptive_mask_threshold}')
-        #     # expand_mask_bool = expand_mask > adaptive_mask_threshold #初筛
-        #     # mask_threshold = adaptive_mask_threshold
-        #     expand_mask_bool = expand_mask > mask_threshold  # 初筛
-        # elif type=='hard':
-        expand_mask_bool = expand_mask > mask_threshold #初筛
+        expand_mask_bool = binary_mask
 
-        #腐蚀
+        # 腐蚀
         expand_mask_bool = self.erode_operation(expand_mask_bool, kernel_size=10)
         expand_regions = expand_mask_bool.bool() & ~ref_mask_bool.bool()
-        if type == 'soft':#计算所有expansion mask 位置到 ref mask位置的BFS距离，依据距离定阈值
-
-            # 计算BFS距离映射
-            distance_map = self.bfs_distance_transform(expand_regions,edge_pixels)
-            distance_map[ref_mask_bool] = 0
-            # 计算物体边界最大距离-表示物体大小
-            # max_edge_distance = torch.max(torch.cdist(edge_coords.float(), edge_coords.float(), p=1))
-            # distance_map /= max_edge_distance #norm
-            valid_distances = distance_map[torch.isfinite(distance_map)]
-            max_distance = valid_distances.max() if valid_distances.numel() > 0 else 1.0
-            distance_map /= max_distance
-            #TODO: 添加一个plot函数方便我看BFS距离图
-            self.plot_bfs_distance_map(distance_map,self.BFS_SAVE_PATH,self.image_name,'BFS-DISTANCE')
-
-
-            # 动态阈值调整
-            # valid_distances = distance_map[torch.isfinite(distance_map)]
-            # max_distance = valid_distances.max() if valid_distances.numel() > 0 else 1.0
-            distance_range = (0, 1)
-            # if control_point is None:
-            #     control_point = max_distance
-            dynamic_function = self.generate_dynamic_threshold_function(mask_threshold,control_value,control_point,distance_range,device=expand_mask_bool.device)
-            dynamic_thr = dynamic_function(relative_distance=distance_map)
-            self.plot_bfs_distance_map(dynamic_thr, self.BFS_SAVE_PATH, self.image_name+'_thr','THR')
-            refined_mask_init = expand_mask > dynamic_thr
-            expand_regions = refined_mask_init.bool() & ~ref_mask_bool.bool()
-            # 初始化访问标记 DFS搜索通路
-            visited = set()
-
-            # 从边缘像素开始进行DFS
-            directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
-            for coord in edge_coords:
-                x, y = coord[0].item(), coord[1].item()
-                self.dfs(x, y, expand_regions, visited, directions)
-
-            # 构建refined mask
-            refined_mask = torch.zeros_like(expand_regions, dtype=torch.bool)
-            for (x, y) in visited:
-                refined_mask[x, y] = True
-
-            # 确保包含原始mask的像素
-            refined_mask |= ref_mask_bool
-
-
 
         # 不连通的位置直接去掉
-        elif type == 'hard':
+        if type == 'hard':
             # 初始化访问标记 DFS搜索通路
             visited = set()
 
@@ -3940,7 +4023,6 @@ class ClawerModel_v2(StableDiffusionPipeline):
 
             # 确保包含原始mask的像素
             refined_mask |= ref_mask_bool
-
 
         refined_mask = self.dilation_operation(refined_mask, kernel_size=15)
 
@@ -3996,29 +4078,53 @@ class ClawerModel_v2(StableDiffusionPipeline):
             self.controller.obj_mask = mask
             self.controller.log_mask = True
         return mask
+    def otsu_thresholding_torch(self,image):
 
-    def fetch_expansion_mask_from_store(self,expansion_masks,mask,roi_expansion,post_process,mask_threshold):
-        #Tensor masks -> 0-255 cpu ndarray mask
-        #expansion_masks = [ddim] or [ddpm] or [ddim,ddpm]
-        # step_masks = []
-        # for exp_msks in expansion_masks: #exp_msks is a dict contains of different steps masks Tensors
-        #     step_masks.extend([v for i, v in exp_msks.items()])
-        # # TODO  exponential moving average refine / weighted sum
-        # average_expansion_masks = sum(step_masks) / len(step_masks)
-        average_expansion_masks = expansion_masks
-        # print(mask.shape)
-        # print(average_expansion_masks.shape)
-        # self.view(mask,name='mask')
-        norm_exp_mask = self.normalize_expansion_mask(mask, average_expansion_masks, roi_expansion, )
-        if post_process is not None:
-            assert post_process in ['hard', 'soft'], f'not implement method: {post_process}'
-            # post process based on distance and init thr
-            norm_exp_mask = self.Mask_post_process(norm_exp_mask, mask, mask_threshold, post_process, )
+        hist = torch.histc(image.float(), bins=256, min=0, max=255).to(image.device)
+
+
+        pixel_sum = torch.sum(hist)
+        weight1 = torch.cumsum(hist, 0)
+        weight2 = pixel_sum - weight1
+
+        bin_edges = torch.arange(256).float().to(image.device)
+
+
+        mean1 = torch.cumsum(hist * bin_edges, 0) / (weight1 + (weight1 == 0))
+        mean2 = (torch.cumsum(hist.flip(0) * bin_edges.flip(0), 0) / (weight2.flip(0) + (weight2.flip(0) == 0))).flip(0)
+
+
+        inter_class_variance = weight1[:-1] * weight2[1:] * (mean1[:-1] - mean2[1:]) ** 2
+        threshold = torch.argmax(inter_class_variance)
+        print(f'threshold:{threshold/255}')
+
+
+        binary_image = torch.where(image <= threshold, 0, 255)
+        return binary_image.type(torch.uint8)
+
+    def mask_with_otsu_pytorch(self,tensor: torch.Tensor):
+        image = (tensor * 255).to(torch.uint8)
+
+        binary_image = self.otsu_thresholding_torch(image)
+        return (binary_image / 255).to(tensor.dtype)
+    def normalize_and_binarize(self, mask_logits, ref_mask, roi_expansion, mask_threshold, otsu=False):
+        norm_exp_mask = self.normalize_expansion_mask(ref_mask, mask_logits, roi_expansion, )
+        if otsu:
+            binary_mask = self.mask_with_otsu_pytorch(norm_exp_mask)
         else:
             norm_exp_mask = norm_exp_mask > mask_threshold
-            norm_exp_mask = norm_exp_mask.to(torch.uint8) * 255
-
-        return norm_exp_mask.detach().cpu().numpy()
+            binary_mask = norm_exp_mask.to(mask_logits.dtype)
+        return binary_mask
+    def fetch_expansion_mask_from_store(self, expansion_masks, mask, roi_expansion, post_process, mask_threshold,
+                                        otsu=False):
+        binary_exp_mask = self.normalize_and_binarize(expansion_masks, mask, roi_expansion, mask_threshold, otsu)
+        if post_process is not None:
+            assert post_process in ['hard'], f'not implement method: {post_process}'
+            # post process based on distance and init thr
+            final_mask = self.Mask_post_process(binary_exp_mask, mask, post_process, )
+        else:
+            final_mask = binary_exp_mask * 255
+        return final_mask.detach().cpu().numpy()
 
     def gradio_mask_expansion_func(self, img, mask, prompt,
                          guidance_scale, num_step, eta=0,roi_expansion=True,
@@ -4044,39 +4150,107 @@ class ClawerModel_v2(StableDiffusionPipeline):
         self.controller.reset()
         return candidate_mask
 
+
     @torch.no_grad()
-    def DDIM_inversion_mask_expansion_func(self, img, mask, prompt,
-                                           guidance_scale, num_step,start_step=0, roi_expansion=True,
-                                           mask_threshold=0.1, post_process='hard', use_mask_expansion=True,ref_img=None,
-                                           ):
+    def ClipWordMatching(self, img, mask, full_prompt):
+        nlp = spacy.load("en_core_web_sm")
+
+        # 使用 spaCy 处理句子
+        doc = nlp(full_prompt)
+        omit_list = ['photo']
+
+        # 提取名词，排除指定的词
+        words = [token.text for token in doc if token.pos_ == "NOUN" and token.text not in omit_list]
+
+        # 通过mask区域的boundary box裁剪图像
+        cropped_img = self.crop_image_with_mask(img, mask)
+        image = self.clip_process(self.numpy_to_pil(cropped_img)[0]).unsqueeze(0).to(self.device)
+
+        # 对每个词进行编码
+        text_tokens = clip.tokenize(words).to(self.device)
+
+        # 计算图像的特征向量
+        image_features = self.clip.encode_image(image)
+
+        # 计算每个词的特征向量
+        text_features = self.clip.encode_text(text_tokens)
+
+        # 计算相似度
+        similarities = torch.cosine_similarity(image_features, text_features)
+
+        # 找到最匹配的词的索引
+        best_match_index = torch.argmax(similarities).item()
+
+        # 最匹配的词
+        best_match_word = words[best_match_index]
+
+        return best_match_word
+    def box_mask(self,mask):
+        new_mask = np.zeros_like(mask)
+        x, y, w, h = cv2.boundingRect(mask)
+        new_mask[y:y + h, x:x + w] = 1
+        return new_mask
+    def crop_image_with_mask(self, img, mask):
+        # 使用cv2.boundingRect获取mask的边界框
+        x, y, w, h = cv2.boundingRect(mask)
+
+        # 裁剪图像
+        if isinstance(img,List):
+            cropped_img = [im[y:y + h, x:x + w] for im in img ]
+        else:
+            cropped_img = img[y:y + h, x:x + w]
+        return cropped_img
+    @torch.no_grad()
+    def Prompt_guided_mask_expansion_func(self, img, mask, assist_prompt,
+                                          num_step, start_step=0,
+                                          use_mask_expansion=True,
+                                          ):
+        source_image = self.preprocess_image(img, self.device)
+        # reference mask prepare
+        x, y, w, h = cv2.boundingRect(self.dilate_mask(mask,30))
+        local_focus = np.zeros_like(mask)
+        local_focus[y: y + h, x: x + w] = 255
+        mask = self.prepare_controller_ref_mask(mask, use_mask_expansion)
+        local_focus = self.prepare_controller_ref_mask(local_focus,False)
+        self.controller.local_focus_box = local_focus
+        if len(assist_prompt) ==1 and assist_prompt[0]=="":
+            assist_prompt = None
+        #ddim inv
+        latents = self.Expansion_invert(
+            source_image,
+            assist_prompt,
+            num_inference_steps=num_step,
+            num_actual_inference_steps=num_step - start_step,
+        )
+        del latents
+        self.controller.reset()  # reset for next image
+        candidate_mask = self.controller.obj_mask.detach().cpu().numpy()
+        candidate_mask = self.erode_mask(candidate_mask,15)
+        return candidate_mask
+    @torch.no_grad()
+    def DDIM_inversion_func(self, img, mask, prompt,
+                            num_step, start_step=0, ref_img=None, ):
+
         source_image = self.preprocess_image(img, self.device)
         if ref_img is not None:
             ref_image = self.preprocess_image(ref_img, self.device)
             source_image = torch.cat((source_image,ref_image))
         # reference mask prepare
-        mask = self.prepare_controller_ref_mask(mask,use_mask_expansion)
+        mask = self.prepare_controller_ref_mask(mask,False)
 
         latents, latents_list = \
             self.invert(
                 source_image,
                 prompt,
-                guidance_scale=guidance_scale,
+                guidance_scale=1.0,
                 num_inference_steps=num_step,
                 num_actual_inference_steps=num_step-start_step,
                 return_intermediates=True,
             )
-        if not use_mask_expansion:
-            self.controller.reset() #clear
-            return mask.detach().cpu().numpy(), latents_list
-        # expansion_masks = self.controller.expansion_mask_store  # expansion mask & average of up mid down resized corresponded self attention maps
-        expansion_masks = self.controller.expansion_mask_on_the_fly / self.controller.step_num
-        self.controller.reset()  # reset for next image
-        # step_masks = [v for i, v in expansion_masks.items()]
-        candidate_mask = self.fetch_expansion_mask_from_store(expansion_masks, mask, roi_expansion, post_process,
-                                                              mask_threshold)
-        # 清理显存
-        del expansion_masks
-        return candidate_mask, latents_list
+
+        self.controller.reset() #clear
+        return mask.detach().cpu().numpy(), latents_list
+
     @torch.no_grad()
     def get_mask_center(self,mask):
         y_indices, x_indices = torch.where(mask)
@@ -4252,7 +4426,6 @@ class ClawerModel_v2(StableDiffusionPipeline):
 
 
 
-
     def prepare_h_feature(self, init_code, t, edit_prompt, BG_preservation=True, foreground_mask=None, lr=0.01, lam=0.1,
                           eta=0.0, refer_latent=None,h_feature_input=None,):
         # Encode prompt
@@ -4298,13 +4471,13 @@ class ClawerModel_v2(StableDiffusionPipeline):
         return h_feature
 
     @torch.no_grad()
-    def prepare_various_mask(self, shifted_mask, ori_mask, sup_res_w, sup_res_h, init_code):
-        shifted_mask_tensor_dilated = self.prepare_tensor_mask(self.dilate_mask(shifted_mask,15),sup_res_w,sup_res_h)
-        shifted_mask_tensor = self.prepare_tensor_mask(shifted_mask,sup_res_w,sup_res_h)
+    def prepare_various_mask(self, shifted_mask, ori_mask, sup_res_w, sup_res_h, init_code,ddpm_region):
+        shifted_mask_tensor_dilated = self.prepare_tensor_mask(self.dilate_mask(ddpm_region,15),sup_res_w,sup_res_h)
+        shifted_mask_tensor = self.prepare_tensor_mask(shifted_mask, sup_res_w, sup_res_h)
         ori_mask_tensor = self.prepare_tensor_mask(ori_mask, sup_res_w, sup_res_h)
         foreground_latent_region = shifted_mask_tensor_dilated + ori_mask_tensor
         foreground_latent_region[foreground_latent_region > 0.0] = 1
-        local_variance_reg = (1-shifted_mask_tensor) *  shifted_mask_tensor_dilated
+        local_variance_reg = (1 - shifted_mask_tensor) * shifted_mask_tensor_dilated
         shifted_mask_tensor[shifted_mask_tensor > 0.0] = 1
         latent_foreground_masks = F.interpolate(foreground_latent_region.unsqueeze(0).unsqueeze(0),
                                                 (init_code.shape[2], init_code.shape[3]),
@@ -4328,12 +4501,11 @@ class ClawerModel_v2(StableDiffusionPipeline):
 
         return transformed_masks_tensor
 
-    def ReggioEdit3D(self, source_image, inverted_latents, edit_prompt, shifted_mask,ori_mask,
-                            num_steps=100, start_step=30, end_step=10,
-                            guidance_scale=3.5, eta=1,
-                            roi_expansion=True, mask_threshold=0.1, post_process='hard',
-                            feature_injection=True,FI_range=(900,680),sim_thr=0.5,dilate_kernel_size=15,DIFT_LAYER_IDX = [0,1,2,3],
-                            use_sdsa=True,ref_img=None):
+    def Details_Preserving_regeneration(self, source_image, inverted_latents, edit_prompt, shifted_mask, ori_mask,
+                                        num_steps=100, start_step=30, end_step=10,
+                                        guidance_scale=3.5, eta=1,
+                                        feature_injection=True, FI_range=(900,680), sim_thr=0.5, DIFT_LAYER_IDX = [0,1,2,3],
+                                        use_mtsa=True, ref_img=None, ddpm_region=None):
 
         """
         latent vis
@@ -4361,7 +4533,7 @@ class ClawerModel_v2(StableDiffusionPipeline):
         sup_res_h = int(0.5 * full_h)
         sup_res_w = int(0.5 * full_w)
 
-        foreground_mask,object_mask,local_var_reg = self.prepare_various_mask(shifted_mask, ori_mask, sup_res_w, sup_res_h, init_code_orig)
+        foreground_mask,object_mask,local_var_reg = self.prepare_various_mask(shifted_mask, ori_mask, sup_res_w, sup_res_h, init_code_orig,ddpm_region)
         # object_mask = self.dilate_mask(object_mask,15)
         # h_feature = self.prepare_h_feature(init_code_orig,t,edit_prompt,BG_preservation=False,foreground_mask=foreground_mask,lr=0.1,lam=0.1,eta=1.0)
 
@@ -4379,24 +4551,8 @@ class ClawerModel_v2(StableDiffusionPipeline):
 
         self.controller.SDSA_REF_MASK = SDSA_REF_MASK
         self.controller.reset()
-        # self.controller.log_mask = True
-        # edit_gen_image = self.forward_sampling(
-        #     prompt=edit_prompt,
-        #     h_feature=h_feature,
-        #     gen_img=False,
-        #     end_step=end_step,
-        #     batch_size=1,
-        #     latents=init_code_orig,
-        #     # latents=torch.cat([init_code_orig, init_code_orig], dim=0),
-        #     guidance_scale=guidance_scale,
-        #     num_inference_steps=num_steps,
-        #     num_actual_inference_steps=num_steps - start_step,
-        #     return_intermediates=False,
-        #     eta=0.0,
-        # )[0]
-
         # refer_gen_image = edit_ori_image[0] #vis ddim results
-        self.controller.log_mask = True
+        self.controller.log_mask = False
         refer_latents_ori = inverted_latents[::-1]
         edit_gen_image,ref_gen_image = self.forward_sampling_BG(
             prompt=[edit_prompt,""],
@@ -4414,21 +4570,12 @@ class ClawerModel_v2(StableDiffusionPipeline):
             local_var_reg=local_var_reg ,
             feature_injection_allowed = feature_injection,
             feature_injection_timpstep_range= FI_range,
-            use_sdsa=use_sdsa,
+            use_mtsa=use_mtsa,
         )
-
-        # refer_gen_image = self.numpy_to_pil(refer_gen_image.permute(1, 2, 0).detach().cpu().numpy())[0]
-        refer_gen_image = self.numpy_to_pil(ref_gen_image .permute(1, 2, 0).detach().cpu().numpy())[0]
-        edit_gen_image = self.numpy_to_pil(edit_gen_image.permute(1, 2, 0).detach().cpu().numpy())[0]
-
-        # get ddpm forward expansion target mask
-        # ddpm_for_expansion_masks = self.controller.expansion_mask_store  # expansion mask & average of up mid down resized corresponded self attention maps
-        ddpm_for_expansion_masks = self.controller.expansion_mask_on_the_fly / self.controller.step_num
-        self.controller.reset() # reset for next image
-        target_mask = self.fetch_expansion_mask_from_store(ddpm_for_expansion_masks, mask, roi_expansion,
-                                                              post_process, mask_threshold)
-
-        return edit_gen_image,refer_gen_image, target_mask
+        self.controller.reset()
+        refer_gen_image = ref_gen_image.permute(1, 2, 0).detach().cpu().numpy()
+        edit_gen_image = edit_gen_image.permute(1, 2, 0).detach().cpu().numpy()
+        return edit_gen_image,refer_gen_image
     def ReggioRecurrentEdit(self,source_image, inverted_latents,  edit_prompt,  expand_mask,x_shift,y_shift,resize_scale,rotation_angle,motion_split_steps,num_steps=100, start_step=30,end_step=10, guidance_scale=3.5, eta=0,
                    roi_expansion=True,mask_threshold=0.1, post_process='hard',max_times=10,sim_thr=0.7,lr=0.01,lam=0.1,):
 

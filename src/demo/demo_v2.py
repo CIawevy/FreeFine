@@ -163,6 +163,9 @@ def create_my_demo_full_SV3D_magic(runner):
                     gr.Markdown("## 3. Prompt")
                     prompt = gr.Textbox(label="Prompt")
 
+                    gr.Markdown("## 3.Assist Prompt")
+                    assist_prompt = gr.Textbox(label="Prompt")
+
                     gr.Markdown("## 4.Inpaint Prompt")
                     INP_prompt = gr.Textbox(label="INP_Prompt")
 
@@ -333,7 +336,7 @@ def create_my_demo_full_SV3D_magic(runner):
                          inputs=[original_image, img_ref, prompt, INP_prompt, seed, guidance_scale, num_step,
                                  max_resolution, mode, dilate_kernel_size,
                                  start_step, eta, use_mask_expansion,
-                                contrast_beta, mask_threshold, mask_threshold_target,end_step,feature_injection,FI_range,sim_thr,DIFT_LAYER_IDX,use_sdsa,mask_ref ],
+                                contrast_beta, mask_threshold, mask_threshold_target,end_step,feature_injection,FI_range,sim_thr,DIFT_LAYER_IDX,use_sdsa,mask_ref,assist_prompt ],
                          outputs=[output_edit, refer_edit,INP_IMG, INP_Mask, TGT_MSK])
         clear_button.click(fn=fun_clear,
                            inputs=[original_image, mask, prompt, INP_prompt, ],
@@ -581,6 +584,9 @@ def create_my_demo_full_2D_magic(runner):
                     gr.Markdown("## 3. Prompt")
                     prompt = gr.Textbox(label="Prompt")
 
+                    gr.Markdown("## 3.Assist Prompt")
+                    assist_prompt = gr.Textbox(label="Assist-Prompt")
+
                     gr.Markdown("## 4.Inpaint Prompt")
                     INP_prompt = gr.Textbox(label="INP_Prompt")
 
@@ -619,6 +625,13 @@ def create_my_demo_full_2D_magic(runner):
                             step=1,
                             value=25,
                             interactive=True)
+                        exp_step = gr.Slider(
+                            label="Mask expansion step",
+                            minimum=0,
+                            maximum=1000,
+                            step=1,
+                            value=4,
+                            interactive=True)
                         end_step = gr.Slider(
                             label="h-feature end injection steps",
                             minimum=0,
@@ -631,31 +644,17 @@ def create_my_demo_full_2D_magic(runner):
                             minimum=0,
                             maximum=1,
                             step=1,
-                            value=0,
-                            interactive=True)
-                        mask_threshold = gr.Slider(
-                            label=" mask_threshold",
-                            minimum=0,
-                            maximum=1,
-                            step=0.1,
-                            value=0.2,
+                            value=1,
                             interactive=True)
                         mode = gr.Slider(
                             label=" inpainting mode selection 1:laMa 2:sd-inpaint",
                             minimum=1,
                             maximum=2,
                             step=1,
-                            value=1,
+                            value=2,
                             interactive=True)
 
                         max_resolution = gr.Slider(label="Resolution", value=512, minimum=428, maximum=1024, step=1)
-                        dilate_kernel_size = gr.Slider(
-                            label="dilate_kernel_size for inpainting mask dilation",
-                            minimum=1,
-                            maximum=100,
-                            step=1,
-                            value=30,
-                            interactive=True)
                         contrast_beta = gr.Slider(
                             label="contrast_beta for contrast operation in attention map store >1:focus <1:sparse",
                             minimum=0.1,
@@ -693,13 +692,6 @@ def create_my_demo_full_2D_magic(runner):
                                 step=1,
                                 value=0,
                                 interactive=True)
-                            mask_threshold_target = gr.Slider(
-                                label=" mask_threshold_target",
-                                minimum=0,
-                                maximum=1,
-                                step=0.1,
-                                value=0.2,
-                                interactive=True)
                             feature_injection = gr.Slider(
                                 label="feature_injection",
                                 minimum=0,
@@ -707,7 +699,6 @@ def create_my_demo_full_2D_magic(runner):
                                 step=1,
                                 value=1,
                                 interactive=True)
-
                             sim_thr = gr.Slider(
                                 label="sim_thr",
                                 minimum=0,
@@ -715,8 +706,8 @@ def create_my_demo_full_2D_magic(runner):
                                 step=0.1,
                                 value=0.5,
                                 interactive=True)
-                            use_sdsa = gr.Slider(
-                                label="use_sdsa",
+                            use_mtsa = gr.Slider(
+                                label="use_mtsa",
                                 minimum=0,
                                 maximum=1,
                                 step=1,
@@ -770,9 +761,9 @@ def create_my_demo_full_2D_magic(runner):
             )
 
         run_button.click(fn=runner,
-                         inputs=[ original_image,prompt, INP_prompt,selected_points,seed, guidance_scale, num_step, max_resolution, mode, dilate_kernel_size, start_step, resize_scale,
-                                  rotation_angle, flip_horizontal,flip_vertical,eta, use_mask_expansion,contrast_beta, mask_threshold, mask_threshold_target, end_step,
-                                feature_injection, FI_range,sim_thr, DIFT_LAYER_IDX, use_sdsa,mask_ref],
+                         inputs=[ original_image,prompt, INP_prompt,selected_points,seed, guidance_scale, num_step, max_resolution, mode, start_step, resize_scale,
+                                  rotation_angle, flip_horizontal,flip_vertical,eta, use_mask_expansion,exp_step,contrast_beta, end_step,
+                                feature_injection, FI_range,sim_thr, DIFT_LAYER_IDX, use_mtsa,mask_ref,assist_prompt],
                          outputs=[output_edit, refer_edit,INP_IMG, INP_Mask, TGT_MSK])
         clear_button.click(fn=fun_clear,
                            inputs=[original_image, mask, prompt, INP_prompt, ],

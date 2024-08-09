@@ -3,6 +3,7 @@ from src.demo.download import download_all
 import os
 os.environ["CUDA_VISIBLE_DEVICES"]="0"
 from simple_lama_inpainting import SimpleLama
+from lama import lama_with_refine
 from src.demo.demo import create_my_demo_full_3D_magic
 from src.demo.demo_v2 import create_my_demo_full_SV3D_magic,create_my_demo_full_SV3D_multi_obj_case,create_my_demo_full_2D_magic
 from src.demo.model import ClawerModels,ClawerModel_v2
@@ -16,6 +17,14 @@ from depth_anything_v2.dpt import DepthAnythingV2
 from torchvision.transforms import Compose
 from diffusers import DDIMScheduler
 from diffusers import StableDiffusionPipeline, DDIMInverseScheduler, AutoencoderKL, DDIMScheduler,DDIMPipeline,StableDiffusionInpaintPipeline
+from transformers import  CLIPTokenizer
+import clip
+def load_clip_on_the_main_Model(main_model,device):
+    # 加载CLIP模型和处理器
+    model, preprocess = clip.load("ViT-B/32", device=device)
+    main_model.clip = model
+    main_model.clip_process = preprocess
+    return main_model
 # main demo
 # pretrained_model_path = "runwayml/stable-diffusion-v1-5"
 device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
@@ -24,7 +33,6 @@ device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('
 
 pretrained_inpaint_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-inpainting/"
 # pretrained_inpaint_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-2-inpainting/"
-
 sd_inpainter = StableDiffusionInpaintPipeline.from_pretrained(
     pretrained_inpaint_model_path,
     revision="fp16",
@@ -50,8 +58,8 @@ depth_anything_v2.to(device).eval()
 
 pretrained_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-v1-5/"
 lora_path = gr.Textbox(value="./lora_tmp", label="LoRA path")
-vae_path = "/data/Hszhu/prompt-to-prompt/sd-vae-ft-mse"
-# vae_path='default'
+# vae_path = "/data/Hszhu/prompt-to-prompt/sd-vae-ft-mse"
+vae_path='default'
 #implement from p2p & FPE they have the same scheduler config which is different from official code
 # scheduler = DDIMScheduler(beta_start=0.00085, beta_end=0.012, beta_schedule="scaled_linear", clip_sample=False, set_alpha_to_one=False)
 # model = ClawerModels.from_pretrained(pretrained_model_path,scheduler=scheduler).to(device)
@@ -66,14 +74,15 @@ if vae_path != "default":
 # model.precision=precision
 # Set up a DDIM scheduler
 model.scheduler = DDIMScheduler.from_config(model.scheduler.config,)
-model.inpainter = SimpleLama()
+model.inpainter = lama_with_refine(device)
+model = load_clip_on_the_main_Model(model,device)
 # model.unet = DragonUNet2DConditionModel.from_pretrained(pretrained_model_path, subfolder="unet", torch_dtype=precision).to(device)
 # model.inpainter = None
 model.sd_inpainter = sd_inpainter
 model.depth_anything = depth_anything_v2
 # model.depth_anything = depth_anything
 # model.transform = transform
-controller = Mask_Expansion_SELF_ATTN(block_size=8,drop_rate=0.7,start_layer=10)
+controller = Mask_Expansion_SELF_ATTN(block_size=8,drop_rate=0.5,start_layer=10)
 controller.contrast_beta = 1.67
 controller.use_contrast = True
 model.controller = controller

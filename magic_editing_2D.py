@@ -1,7 +1,8 @@
 import os
 os.environ["CUDA_VISIBLE_DEVICES"]="1"
-from simple_lama_inpainting import SimpleLama
-from src.demo.demo import create_my_demo,create_my_demo_full_2D,create_my_demo_full_3D_magic,create_my_demo_full_2D_ctn
+# from simple_lama_inpainting import SimpleLama
+from lama import lama_with_refine
+
 from src.demo.model import ClawerModels,ClawerModel_v2
 from src.unet.unet_2d_condition import DragonUNet2DConditionModel
 import torch
@@ -15,6 +16,16 @@ from diffusers import StableDiffusionPipeline, DDIMInverseScheduler, Autoencoder
 from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
+
+import clip
+import warnings
+
+def load_clip_on_the_main_Model(main_model,device):
+    # 加载CLIP模型和处理器
+    model, preprocess = clip.load("ViT-B/32", device=device)
+    main_model.clip = model
+    main_model.clip_process = preprocess
+    return main_model
 def visualize_rgb_image(image: Image.Image, title: str = None) -> None:
     """
     Visualize an RGB image from a PIL Image format with an optional title.
@@ -83,35 +94,31 @@ if vae_path != "default":
     model.vae = AutoencoderKL.from_pretrained(
         vae_path
     ).to(model.vae.device, model.vae.dtype)
-# model.precision = torch.float32
-# model.precision=precision
-# Set up a DDIM scheduler
+
 model.scheduler = DDIMScheduler.from_config(model.scheduler.config,)
-model.inpainter = SimpleLama()
-# model.unet = DragonUNet2DConditionModel.from_pretrained(pretrained_model_path, subfolder="unet", torch_dtype=precision).to(device)
-# model.inpainter = None
+model.inpainter = lama_with_refine(device)
 model.sd_inpainter = sd_inpainter
 model.depth_anything = depth_anything_v2
-# model.depth_anything = depth_anything
-# model.transform = transform
+model = load_clip_on_the_main_Model(model,device)
 controller = Mask_Expansion_SELF_ATTN(block_size=8,drop_rate=0.5,start_layer=10)
 controller.contrast_beta = 1.67
 controller.use_contrast = True
 model.controller = controller
 register_attention_control(model, controller)
-# prepare for drag diffusion module
 model.modify_unet_forward()
 model.enable_attention_slicing()
 model.enable_xformers_memory_efficient_attention()
-image_path= "/data/Hszhu/prompt-to-prompt/CPIG/5.png"
-mask_path = "/data/Hszhu/prompt-to-prompt/masks/5.png"
+image_path= "/data/Hszhu/prompt-to-prompt/CPIG/1.jpg"
+mask_path = "/data/Hszhu/prompt-to-prompt/masks/1.png"
 #cv2 loading to ndarray
 
 #####################################################
 original_image= cv2.imread(image_path)
 original_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)
 mask = cv2.imread(mask_path)
-selected_points = [[669, 426], [340, 540]]
+# selected_points = [[669, 426], [340, 540]]
+selected_points = [[185, 185], [133, 185]]
+
 resize_scale = 1.0
 rotation_angle =0.0
 flip_horizontal = 0
@@ -119,8 +126,8 @@ flip_vertical = 0
 guidance_scale = 7.5
 eta = 1.0
 num_step = 50
-start_step = 15
-end_step = 5
+start_step = 25
+end_step = 0
 feature_injection=True
 use_sdsa = True
 #SDSA ['down','mid','up']
@@ -130,7 +137,7 @@ sim_thr = 0.5
 DIFT_LAYER_IDX = [0,1,2,3] #[1,2,3]
 mask_threshold =  0.2
 mask_threshold_target = 0.5
-mode =2
+mode = 2
 use_mask_expansion =1,
 strong_inpaint = 1
 cross_enhance = 0
@@ -139,44 +146,35 @@ blending_alpha = 1.0
 max_resolution = 512
 dilate_kernel_size = 30
 contrast_beta = 1.67
-
 seed = 42
-splatting_radius = 0.015
-splatting_tau =  0.0
-splatting_points_per_pixel = 30
-focal_length =  340
-sx =  1
-sy = 1
-sz = 1
-rx = 0
-ry = 0
-rz = 0
-tx = 0.2
-ty = -0.2
-tz =  0.3
-
-prompt="car"
-INP_prompt='empty scene'
 
 
-
+prompt="a photo of a blue car driving down the road"
+# prompt = 'a photo of apples lying on the wooden table with cracks,realistic style'
+# prompt = 'a photo of sun,with blue sky and white clouds,and a tree'
+# prompt='person'
+INP_prompt = 'empty scene'
+INP_prompt='blur empty scene, highest quality'
+INP_prompt='a photo of a background, a photo of an empty place'
+# prompt = 'car'
+assist_prompt = 'shadow'
+# assist_prompt=['beam']
 
 
 output_edit, refer_edit,INP_IMG, INP_Mask, TGT_MSK = model.Magic_Editing_Baseline_2D(original_image,prompt, INP_prompt,selected_points,
-                                  seed, guidance_scale, num_step, max_resolution, mode, dilate_kernel_size, start_step, resize_scale,
-                                  rotation_angle, flip_horizontal,flip_vertical,eta=0, use_mask_expansion=True,contrast_beta=1.67, mask_threshold=0.1, mask_threshold_target=0.1, end_step=10,
-                                feature_injection=True, FI_range=(900, 680),sim_thr=0.5, DIFT_LAYER_IDX=[0, 1, 2, 3], use_sdsa=True,select_mask=mask,
+                                  seed, guidance_scale, num_step, max_resolution, mode,start_step, resize_scale,
+                                  rotation_angle, flip_horizontal,flip_vertical,eta=1, use_mask_expansion=True,expansion_step=5,contrast_beta=1.67,  end_step=0,
+                                feature_injection=True, FI_range=(900, 680),sim_thr=0.5, DIFT_LAYER_IDX=[0, 1, 2, 3], use_mtsa=True,select_mask=mask,assist_prompt=assist_prompt
                                   )
 visualize_rgb_image(output_edit[0], title="output_edit")
-# visualize_rgb_image(refer_edit[0], title="refer_edit")
-# visualize_rgb_image(INP_IMG[0], title="INP_IMG")
+visualize_rgb_image(refer_edit[0], title="refer_edit")
+visualize_rgb_image(INP_IMG[0], title="INP_IMG")
 # visualize_rgb_image(noised_optimized_image[0], title="noised_optimized_image")
-# model.temp_view(TGT_MSK[0])
+model.temp_view(TGT_MSK[0])
 
 
 model.prepare_h_feature()
-model.ReggioEdit3D()
-
+model.Details_Preserving_regeneration()
 model.invert()
 model.forward_sampling_BG()
 #TODO:Size 变回原图size 经过一次resize的

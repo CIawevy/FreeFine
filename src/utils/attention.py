@@ -392,7 +392,8 @@ def register_attention_control(model, controller):
                 hidden_states = controller.mutual_self_attention(query,key,value,is_cross, place_in_unet)
             elif controller.local_edit and is_cross:
                 hidden_states = controller.modulate_local_cross_attn(query,key,value,is_cross, place_in_unet)
-
+            elif  place_in_unet in ['up'] and is_cross and controller.bidirectional_loc:#Expansion INV Process
+                hidden_states = controller.loc_cross_attn_mask_expansion(query, key, value, is_cross, place_in_unet)
             else:
                 query = self.head_to_batch_dim(query)
                 key = self.head_to_batch_dim(key)
@@ -535,9 +536,9 @@ class AttentionStore(AttentionControl):
 class Mask_Expansion_SELF_ATTN(AttentionControl):
     @staticmethod
     def get_empty_store():
-        # return {"down_cross": [], "mid_cross": [], "up_cross": [],
-        #         "down_self": [],  "mid_self": [],  "up_self": []}
-        return {"down_self": [], "mid_self": [], "up_self": []}
+        return {"down_cross": [], "mid_cross": [], "up_cross": [],
+                "down_self": [],  "mid_self": [],  "up_self": []}
+        # return {"down_self": [], "mid_self": [], "up_self": []}
 
     def __call__(self, attn, is_cross: bool, place_in_unet: str):
         if self.log_mask:
@@ -639,21 +640,232 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         plt.axis('off')  # 去掉坐标轴
         plt.show()
 
+    def dilation_operation(self, mask, kernel_size=5):
+        mask = mask.float()
+        # 创建结构元素
+        kernel = self.get_structuring_element(kernel_size)
+        # 膨胀
+        opened = F.conv2d(mask.unsqueeze(0).unsqueeze(0), kernel, padding='same').squeeze(0).squeeze(0)
+        opened = (opened > 0).float()
+        return opened
+
+    def closing_operation(self, mask, kernel_size=5):
+        mask = mask.float()
+        # 创建结构元素
+        kernel = self.get_structuring_element(kernel_size)
+        # 先膨胀
+        dilated = F.conv2d(mask.unsqueeze(0).unsqueeze(0), kernel, padding='same').squeeze(0).squeeze(0)
+        dilated = (dilated > 0).float()
+        # 后腐蚀
+        closed = F.conv2d(dilated.unsqueeze(0).unsqueeze(0), kernel, padding='same').squeeze(0).squeeze(0)
+        closed = (closed == torch.max(closed)).float()
+        return closed
+    def normalize_expansion_mask(self, mask, exp_mask, roi_expansion,local_box=None):
+        if local_box is not None:
+            candidate_mask = torch.zeros_like(local_box)
+            box_index = (local_box>125).bool()
+
+            box_value = exp_mask[box_index]
+            ma, mi = box_value.max(), box_value.min()
+            box_norm = (box_value - mi) / (ma - mi)
+            candidate_mask[box_index] = box_norm
+        else:
+            if roi_expansion:
+                candidate_mask = torch.ones_like(exp_mask)
+                expansion_loc = mask < 125
+                average_expansion_masks_of_interested = exp_mask[expansion_loc]
+                ma, mi = average_expansion_masks_of_interested.max(), average_expansion_masks_of_interested.min()
+                average_expansion_masks_norm = (average_expansion_masks_of_interested - mi) / (ma - mi)
+                candidate_mask[expansion_loc] = average_expansion_masks_norm
+            else:
+                ma, mi = exp_mask.max(), exp_mask.min()
+                average_expansion_masks_norm = (exp_mask - mi) / (ma - mi)
+                candidate_mask = average_expansion_masks_norm
+        return candidate_mask
+    def find_edge_pixels(self,mask):
+        # 使用binary_dilation找到边缘
+        kernel = torch.tensor([[0, 1, 0],
+                               [1, 1, 1],
+                               [0, 1, 0]], device=mask.device, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+        mask = mask.float().unsqueeze(0).unsqueeze(0)
+        dilated_mask = F.conv2d(mask, kernel, padding=1) > 0
+        # 确保dilated_mask也是布尔类型
+        dilated_mask = dilated_mask.bool()
+        edge_pixels = dilated_mask & ~mask.bool()
+        return edge_pixels.squeeze(0).squeeze(0)
+
+    def bfs_distance_transform(self, expand_mask_bool, edge_pixels):
+        # 初始化距离映射为无穷大
+        distance_map = torch.full_like(expand_mask_bool, float('inf'), dtype=torch.float32)
+
+        # 将边缘像素的距离设为0
+        queue = [(x.item(), y.item()) for x, y in torch.nonzero(edge_pixels, as_tuple=False)]
+        for x, y in queue:
+            distance_map[x, y] = 0
+
+        # 使用BFS计算距离，仅对expand_mask_bool为True的点计算距离
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        while queue:
+            x, y = queue.pop(0)
+            current_distance = distance_map[x, y]
+            for dx, dy in directions:
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < expand_mask_bool.shape[0] and 0 <= ny < expand_mask_bool.shape[1]:
+                    if expand_mask_bool[nx, ny] and distance_map[nx, ny] > current_distance + 1:
+                        distance_map[nx, ny] = current_distance + 1
+                        queue.append((nx, ny))
+
+        return distance_map
+    def Mask_post_process(self, binary_mask, ref_mask, type):
+
+        ref_mask_bool = ref_mask > 0
+        # 找到原始mask的边缘像素
+        edge_pixels = self.find_edge_pixels(ref_mask_bool)
+        edge_coords = torch.nonzero(edge_pixels, as_tuple=False)
+
+
+        expand_mask_bool = binary_mask
+
+        # 腐蚀
+        expand_mask_bool = self.erode_operation(expand_mask_bool, kernel_size=10)
+        expand_regions = expand_mask_bool.bool() & ~ref_mask_bool.bool()
+
+        # 不连通的位置直接去掉
+        if type == 'hard':
+            # 初始化访问标记 DFS搜索通路
+            visited = set()
+
+            # 从边缘像素开始进行DFS
+            directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+            for coord in edge_coords:
+                x, y = coord[0].item(), coord[1].item()
+                self.dfs(x, y, expand_regions, visited, directions)
+
+            # 构建refined mask
+            refined_mask = torch.zeros_like(expand_regions, dtype=torch.bool)
+            for (x, y) in visited:
+                refined_mask[x, y] = True
+
+            # 确保包含原始mask的像素
+            refined_mask |= ref_mask_bool
+
+        refined_mask = self.dilation_operation(refined_mask, kernel_size=15)
+
+        return refined_mask.to(torch.uint8) * 255
+
+    def erode_operation(self, mask, kernel_size=5):
+        mask = mask.float()
+        # 创建结构元素
+        kernel = self.get_structuring_element(kernel_size)
+        # 腐蚀
+        eroded = F.conv2d(mask.unsqueeze(0).unsqueeze(0), kernel, padding='same').squeeze(0).squeeze(0)
+        eroded = (eroded == torch.max(eroded)).float()
+
+        return eroded
+
+    def get_structuring_element(self, kernel_size):
+        # 创建一个正方形的结构元素
+        kernel = torch.ones((1, 1, kernel_size, kernel_size), dtype=torch.float32)
+        # 将kernel移到和mask相同的设备上
+        kernel = kernel.to(self.device)
+        return kernel
+    def dfs(self,x, y, mask, visited, directions):
+        stack = [(x, y)]
+        while stack:
+            cx, cy = stack.pop()
+            if (cx, cy) in visited:
+                continue
+            visited.add((cx, cy))
+            for dx, dy in directions:
+                nx, ny = cx + dx, cy + dy
+                if self.is_valid(nx, ny, mask) and (nx, ny) not in visited:
+                    stack.append((nx, ny))
+
+    def is_valid(self, x, y, mask):
+        # 检查像素是否在mask范围内且值为True
+        return 0 <= x < mask.shape[0] and 0 <= y < mask.shape[1] and mask[x, y]
+    def normalize_and_binarize(self,mask_logits,ref_mask,roi_expansion,mask_threshold,otsu=False,local_box=None):
+        norm_exp_mask = self.normalize_expansion_mask(ref_mask, mask_logits, roi_expansion,local_box )
+        if otsu:
+            binary_mask = self.mask_with_otsu_pytorch(norm_exp_mask)
+        else:
+            norm_exp_mask = norm_exp_mask > mask_threshold
+            binary_mask = norm_exp_mask.to(mask_logits.dtype)
+        return binary_mask
+    def fetch_expansion_mask_from_store(self, expansion_masks, obj_mask,dfs_mask, roi_expansion=True, post_process='hard', mask_threshold=0.15,otsu=False,local_box=None):
+        dtype = self.obj_mask.dtype
+        binary_exp_mask = self.normalize_and_binarize(expansion_masks,obj_mask,roi_expansion,mask_threshold,otsu,local_box)
+        if post_process is not None:
+            assert post_process in ['hard'], f'not implement method: {post_process}'
+            # post process based on distance and init thr
+            final_mask = self.Mask_post_process(binary_exp_mask, dfs_mask, post_process,)
+        else:
+            final_mask = binary_exp_mask * 255
+        return final_mask.to(dtype)
+
+    def otsu_thresholding_torch(self,image):
+
+        hist = torch.histc(image.float(), bins=256, min=0, max=255).to(image.device)
+
+
+        pixel_sum = torch.sum(hist)
+        weight1 = torch.cumsum(hist, 0)
+        weight2 = pixel_sum - weight1
+
+        bin_edges = torch.arange(256).float().to(image.device)
+
+
+        mean1 = torch.cumsum(hist * bin_edges, 0) / (weight1 + (weight1 == 0))
+        mean2 = (torch.cumsum(hist.flip(0) * bin_edges.flip(0), 0) / (weight2.flip(0) + (weight2.flip(0) == 0))).flip(0)
+
+
+        inter_class_variance = weight1[:-1] * weight2[1:] * (mean1[:-1] - mean2[1:]) ** 2
+        threshold = torch.argmax(inter_class_variance)
+        print(f'threshold:{threshold/255}')
+
+
+        binary_image = torch.where(image <= threshold, 0, 255)
+        return binary_image.type(torch.uint8)
+
+    def mask_with_otsu_pytorch(self,tensor: torch.Tensor):
+        image = (tensor * 255).to(torch.uint8)
+
+        binary_image = self.otsu_thresholding_torch(image)
+        return (binary_image / 255).to(tensor.dtype)
     def between_steps(self):
+        self.step_num += 1
+
+        if self.SDSA_REF_MASK is not None:
+            # Dropout ref mask for each step without gradients
+            with torch.no_grad():
+                # SDSA_REF_MASK_STEP = F.dropout(self.SDSA_REF_MASK, p=self.drop_out)
+                SDSA_REF_MASK_STEP = self.drop_block(self.SDSA_REF_MASK.unsqueeze(0).unsqueeze(0)).squeeze(0, 1)
+                SDSA_REF_MASK_STEP[SDSA_REF_MASK_STEP > 0] = 1
+                self.SDSA_REF_MASK_STEP = SDSA_REF_MASK_STEP
         if self.log_mask:
+            if not hasattr(self, 'device'):
+                self.device = self.obj_mask.device
             mask_=torch.zeros_like(self.obj_mask)
             h,w = mask_.shape
             attention_map_length = 0
             for k,v in self.step_store.items():
+                if self.step_num==0:
+                    weight = 1.0 if 'cross' in k else 0.0
+                else:
+                    weight = 1.0
+                # weight = 1.0 if 'self' in k else 0.0
+                # weight = 1.0 if 'cross' in k else 0.0
+                # weight = 0.5 if 'self' in k else 5.0
                 for f_t in v:
                     fh,fw = f_t.shape
-                    if h/fh > 8 :
+                    d_ratio =2**int(math.log2(h/fh)+0.5)
+                    if d_ratio > 16 :
                         continue
                         # pass
                     if mask_.shape != f_t.shape:
                         f_t = F.interpolate(f_t.unsqueeze(0).unsqueeze(0), size=mask_.shape,
                                                     mode='nearest').squeeze(0).squeeze(0)
-                    mask_ += f_t
+                    mask_ += f_t * weight
                     attention_map_length+=1
             mask_ /= attention_map_length
             # self.expansion_mask_store[f'step{self.cur_step}'] = mask_
@@ -662,16 +874,33 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
             else:
                 self.expansion_mask_on_the_fly += mask_
 
-            if self.SDSA_REF_MASK is not None:
-                # Dropout ref mask for each step without gradients
-                with torch.no_grad():
-                    # SDSA_REF_MASK_STEP = F.dropout(self.SDSA_REF_MASK, p=self.drop_out)
-                    SDSA_REF_MASK_STEP = self.drop_block(self.SDSA_REF_MASK.unsqueeze(0).unsqueeze(0)).squeeze(0, 1)
-                    SDSA_REF_MASK_STEP[SDSA_REF_MASK_STEP > 0] = 1
-                    self.SDSA_REF_MASK_STEP = SDSA_REF_MASK_STEP
+            expansion_masks = self.expansion_mask_on_the_fly / self.step_num
+            if self.step_num==1 or self.is_locating:
+                self.original_obj_mask = self.obj_mask
+                # auto threshold but avoid mask shrinking
+                candidate_mask = self.fetch_expansion_mask_from_store(expansion_masks, self.original_obj_mask, self.original_obj_mask,
+                                                                      roi_expansion=False,mask_threshold=0.15,otsu=True,)
 
-            self.step_num += 1
+                shadow_mask = torch.where(~(self.original_obj_mask > 0).bool(), candidate_mask, 0)
+                if shadow_mask.sum() == 0:  # weak
+                    self.is_locating = True
+                else:
+                    self.is_locating = False
+                self.obj_mask = shadow_mask
+            else:
+                candidate_mask = self.fetch_expansion_mask_from_store(expansion_masks, self.original_obj_mask,
+                                                                      self.original_obj_mask,
+                                                                      roi_expansion=False, mask_threshold=0.15,
+                                                                      otsu=True, )
+                shadow_mask = torch.where(~(self.original_obj_mask > 0).bool(), candidate_mask, 0)
+                if not self.last_step:
+                    self.obj_mask = shadow_mask
+                else:
+                    self.obj_mask = candidate_mask
+
+
             self.step_store = self.get_empty_store()
+
 
     def contrast_operation(self,mask,contrast_beta,clamp=True,min_v=0,max_v=1,dim=-1):
         if dim is not None:
@@ -685,19 +914,45 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         if clamp:
             return contrasted_mask.clamp(min=min_v,max=max_v)
         return contrasted_mask
+    def get_down_h_w(self,d_ratio,h,w,seq):
+        if not hasattr(self,'down_sampling_shape'):
+            self.down_sampling_shape=dict()
+        else:
+            if d_ratio in self.down_sampling_shape.keys():
+                h,w = self.down_sampling_shape[d_ratio]
+                assert h * w == seq
+
+                return h,w
+
+        #cal dict
+        ori_d_ratio = d_ratio
+        d_ratio //= 8
+        new_h,new_w = h//8,w//8
+        while d_ratio!=1:
+            d_ratio //= 2
+            new_h = (new_h+1)//2 if new_h%2 else new_h//2
+            new_w = (new_w + 1) // 2 if new_w % 2 else new_w // 2
+        assert new_w*new_h == seq
+        self.down_sampling_shape[ori_d_ratio]=[new_h,new_w]
+        return new_h,new_w
+
+    def get_correlation_mask_cross(self, attn,attn_h,attn_w,local_focus_box=None):
+        # correlate_maps = attn.sum(dim=-1).sum(dim=-1) #seq_len
+        correlate_maps = attn.sum(dim=-1)[:,0]  # seq_len
+        if local_focus_box is not None:
+            correlate_maps *= local_focus_box
+        if self.use_contrast:
+            correlate_maps = self.contrast_operation(correlate_maps, self.contrast_beta, clamp=True, min_v=0, max_v=1,
+                                                     dim=None)
+        correlate_maps = correlate_maps.reshape(attn_h, attn_w)
+        return correlate_maps
     def get_correlation_mask(self,attn):
         assert self.obj_mask is not None,"input obj mask please!"
         mask = self.obj_mask
         h,seq_len,_ = attn.shape #head
         m_h,m_w = mask.shape
-        d_ratio = (m_h * m_w // seq_len) ** 0.5
-        try:
-            attn_h,attn_w = int(m_h / d_ratio+0.5),int(m_w / d_ratio+0.5)
-            assert attn_h*attn_w == seq_len
-        except:
-            attn_h,attn_w = int(m_h / d_ratio),int(m_w / d_ratio)
-            assert attn_h * attn_w == seq_len,'shape error'
-
+        d_ratio = 2**int(math.log2((m_h * m_w // seq_len) ** 0.5)+0.5)
+        attn_h,attn_w = self.get_down_h_w(d_ratio,m_h,m_w,seq_len)
         mask = mask.unsqueeze(0).unsqueeze(0)
         downsampled_mask = F.interpolate(mask, size=(attn_h, attn_w), mode='nearest')
         mask_index = (downsampled_mask > 0.5).squeeze(0).squeeze(0).flatten()#obj mask -> down sampled obj mask
@@ -714,6 +969,7 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         self.step_store = self.get_empty_store()
         self.expansion_mask_store = {}
         self.expansion_mask_on_the_fly = None
+        self.expansion_mask_on_the_fly_assist = None
         self.log_mask = False
         self.step_num = 0
         self.model_type = 'Inverse'
@@ -721,6 +977,9 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         self.share_attn = False
         self.local_edit = False
         self.DIFT_FEATURE_INJ = False
+        self.bidirectional_loc = False
+        self.last_step = False #ddim inv last step
+
 
 
     def head_to_batch_dim(self, tensor, out_dim=3):
@@ -817,19 +1076,54 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         attention_probs = attention_probs.to(dtype)
 
         return attention_probs
+    def cross_attention_mask_log(self, attention_probs, local_region_mask, place_in_unet, attn_h, attn_w, d_ratio, local_focus_box):
+        # attention_probs=attention_scores.softmax(dim=-2) #different from CA need to softmax on image dim
+        if local_focus_box is not None:
+            local_focus_box[local_focus_box>0] = 1
+        local_region_mask[local_region_mask > 0] = 1
+        _, L1, L2 = attention_probs.shape
+        attention_probs = attention_probs.view(-1, self.heads, L1, L2)
+        assist_prompt_probs = attention_probs[1].permute(1, 2, 0).softmax(dim=0)  # 4227,77,heads  may contains bug for more than one word
+        key = f"{place_in_unet}_{'cross'}"
+        self.step_store[key].append(self.get_correlation_mask_cross(assist_prompt_probs,attn_h,attn_w,local_focus_box))
+
+    def get_local_attention_scores_with_log(self, query, key, local_region_mask, place_in_unet, attn_h, attn_w, d_ratio, local_focus_box=None):
+        dtype = query.dtype
+        if self.upcast_attention:
+            query = query.float()
+            key = key.float()
+
+        baddbmm_input = torch.empty(
+            query.shape[0], query.shape[1], key.shape[1], dtype=query.dtype, device=query.device
+        )
+        beta = 0
+        attention_scores = torch.baddbmm(
+            baddbmm_input,
+            query,
+            key.transpose(-1, -2),
+            beta=beta,
+            alpha=self.scale,
+        )
+        del baddbmm_input
+
+        if self.upcast_softmax:
+            attention_scores = attention_scores.float()
+        self.cross_attention_mask_log(attention_scores, local_region_mask, place_in_unet, attn_h, attn_w, d_ratio, local_focus_box)  # log key and Exp mask
+        attention_probs = attention_scores.softmax(dim=-1)
+        del attention_scores
+        attention_probs = attention_probs.to(dtype)
+
+        return attention_probs
 
 
-    def process_mask_before_mutual(self,mask,seq):
+    def process_mask_before_mutual(self,mask,seq,skip_eight=False):
         mask[mask>0] = 1
         # PROCESS MASK
         h, w = mask.shape
-        d_ratio = (h * w // seq) ** 0.5
-        try:
-            attn_h,attn_w = int(h / d_ratio+0.5),int(w / d_ratio+0.5)
-            assert attn_h*attn_w == seq
-        except:
-            attn_h,attn_w = int(h / d_ratio),int(w / d_ratio)
-            assert attn_h * attn_w == seq,"shape error"
+        d_ratio = 2**int(math.log2((h * w // seq) ** 0.5)+0.5)
+        if skip_eight:
+            d_ratio *=8
+        attn_h, attn_w = self.get_down_h_w(d_ratio, h, w,seq)
         # down sample
         mask=F.interpolate(mask.unsqueeze(0).unsqueeze(0), size=(attn_h,attn_w),
                                  mode='nearest').squeeze(0, 1)
@@ -847,7 +1141,7 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         # if self.SDSA_REF_MASK_STEP is not None:
         #     SDSA_REF_MASK_STEP = self.SDSA_REF_MASK_STEP
         # ref_mask_ori,_ = self.process_mask_before_mutual(SDSA_REF_MASK_STEP,seq)
-        ref_mask_ori,_ = self.process_mask_before_mutual(self.SDSA_REF_MASK,seq)
+        ref_mask_ori,_ = self.process_mask_before_mutual(self.SDSA_REF_MASK,seq,skip_eight=True)
         edit_mask = edit_mask_ori.flatten()[None,]
         ref_mask = ref_mask_ori.flatten()
         mask = torch.ones((seq, seq), dtype=value.dtype,device=value.device)
@@ -873,13 +1167,8 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         # edit_mask = self.SDSA_EDIT_MASK
         half_seq = seq // 2
         h,w = SDSA_REF_MASK_STEP.shape
-        d_ratio = (h * w // half_seq) ** 0.5
-        try:
-            attn_h,attn_w = int(h / d_ratio+0.5),int(w / d_ratio+0.5)
-            assert attn_h*attn_w == half_seq
-        except:
-            attn_h,attn_w = int(h / d_ratio),int(w / d_ratio)
-            assert attn_h * attn_w == half_seq,"shape error"
+        d_ratio = 2**int(math.log2((h * w // half_seq) ** 0.5)+0.5)
+        attn_h, attn_w = self.get_down_h_w(d_ratio, h, w,half_seq)
         #down sample
         ref_mask = F.interpolate(SDSA_REF_MASK_STEP.unsqueeze(0).unsqueeze(0), size=(attn_h,attn_w), mode='nearest').squeeze(0,1).flatten()
 
@@ -1018,23 +1307,53 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
             self.cur_att_layer = 0
             self.cur_step += 1
             self.between_steps()
-
         return hidden_states
 
 
+    def loc_cross_attn_mask_expansion(self, query, key, value, is_cross, place_in_unet):
+        #[uncon_assist,con_assist]
+        #[normal ca , expand mask]
+        batch_size, sequence_length, _ = (
+            query.shape
+        )
+        local_region = self.obj_mask
+        h, w = local_region.shape
+        d_ratio = 2 ** int(math.log2((h * w // sequence_length) ** 0.5) + 0.5)
+        attn_h, attn_w = self.get_down_h_w(d_ratio, h, w, sequence_length)
+        # down sample
+        local_region = F.interpolate(local_region.unsqueeze(0).unsqueeze(0), size=(attn_h, attn_w),
+                                     mode='nearest').squeeze(0, 1).flatten()
+        # if self.step_num==0 or self.is_locating:
+        # if False:
+        #     local_focus_box = F.interpolate(self.local_focus_box.unsqueeze(0).unsqueeze(0), size=(attn_h, attn_w),
+        #                                     mode='nearest').squeeze(0, 1).flatten()
+        # else:
+        local_focus_box = None
+
+        query = self.head_to_batch_dim(query)
+        key = self.head_to_batch_dim(key)
+        value = self.head_to_batch_dim(value)
+        attention_probs = self.get_local_attention_scores_with_log(query, key, local_region, place_in_unet, attn_h, attn_w, d_ratio, local_focus_box)
+
+        hidden_states = torch.bmm(attention_probs, value)
+        hidden_states = self.batch_to_head_dim(hidden_states)
+        del attention_probs
+        self.cur_att_layer += 1
+        if self.cur_att_layer == self.num_att_layers + self.num_uncond_att_layers:
+            self.cur_att_layer = 0
+            self.cur_step += 1
+            self.between_steps()
+            # self.between_steps_assist_hook()
+
+        return hidden_states
     def modulate_local_cross_attn(self,query,key,value,is_cross, place_in_unet):
         batch_size, sequence_length, _ = (
             query.shape
         )
         local_region = self.obj_mask
         h, w = local_region.shape
-        d_ratio = (h * w // sequence_length) ** 0.5
-        try:
-            attn_h, attn_w = int(h / d_ratio + 0.5), int(w / d_ratio + 0.5)
-            assert attn_h * attn_w == sequence_length
-        except:
-            attn_h, attn_w = int(h / d_ratio), int(w / d_ratio)
-            assert attn_h * attn_w == sequence_length, "shape error"
+        d_ratio = 2**int(math.log2((h * w // sequence_length) ** 0.5)+0.5)
+        attn_h, attn_w = self.get_down_h_w(d_ratio, h, w,sequence_length)
         # down sample
         local_region = F.interpolate(local_region.unsqueeze(0).unsqueeze(0), size=(attn_h,attn_w),
                                  mode='nearest').squeeze(0, 1).flatten()
@@ -1061,16 +1380,13 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
 
     def set_FI_forbid(self, ):
         self.DIFT_FEATURE_INJ = False
-    def inter_mask(self,hw,mask):
+    def inter_mask(self,hw,mask,skip_eight=False):
         mask[mask>0] = 1
         h, w = mask.shape
-        d_ratio = (h * w // hw) ** 0.5
-        try:
-            attn_h, attn_w = int(h / d_ratio + 0.5), int(w / d_ratio )
-            assert attn_h * attn_w == hw
-        except:
-            attn_h, attn_w = int(h / d_ratio), int(w / d_ratio)
-            assert attn_h * attn_w == hw, "shape error"
+        d_ratio = 2**int(math.log2((h * w // hw) ** 0.5)+0.5)
+        if skip_eight: #down sample mask matched
+            d_ratio *= 8
+        attn_h, attn_w = self.get_down_h_w(d_ratio, h, w,hw)
         h, w = attn_h,attn_w
         mask = F.interpolate(mask.unsqueeze(0).unsqueeze(0), size=(h, w), mode='bicubic').squeeze(0, 1)
         return mask,h,w
@@ -1083,9 +1399,7 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         batch, hw, c = hidden_states.shape
 
         edit_mask, _, _ = self.inter_mask(hw, self.obj_mask)
-        ref_mask, h, w = self.inter_mask(hw, self.SDSA_REF_MASK)
-
-
+        ref_mask, h, w = self.inter_mask(hw, self.SDSA_REF_MASK,True)
         try:
             H_list = {feature_map_layers[k].shape[0]:v for k,v in feature_map_layers.items()}
             feature_map = H_list[h]
@@ -1132,6 +1446,7 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         self.step_store = self.get_empty_store()
         self.expansion_mask_store={}
         self.expansion_mask_on_the_fly=None
+        self.expansion_mask_on_the_fly_assist = None
         self.log_mask = False
         self.step_num = 0
         self.model_type='Inverse' #'Sample'
@@ -1147,6 +1462,8 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         self.DIFT_FEATURE_INJ = False
         self.correspondence_map = None
         self.layer_idx = list(range(start_layer, 16))
+        self.bidirectional_loc = False
+        self.last_step = False
         # MODEL_TYPE = {
         #     "SD": 16,
         #     "SDXL": 70
