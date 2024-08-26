@@ -9,6 +9,7 @@ from PIL import Image
 from sam.efficient_sam.build_efficient_sam import build_efficient_sam_vits
 from src.utils.utils import resize_numpy_image
 
+from sam.efficient_sam.efficient_sam import build_efficient_sam
 sam = build_efficient_sam_vits()
 
 def show_point_or_box(image, global_points):

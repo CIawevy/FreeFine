@@ -785,7 +785,9 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         # 检查像素是否在mask范围内且值为True
         return 0 <= x < mask.shape[0] and 0 <= y < mask.shape[1] and mask[x, y]
     def normalize_and_binarize(self,mask_logits,ref_mask,roi_expansion,mask_threshold,otsu=False,local_box=None):
-        norm_exp_mask = self.normalize_expansion_mask(ref_mask, mask_logits, roi_expansion,local_box )
+        # norm_exp_mask = self.normalize_expansion_mask(ref_mask, mask_logits, roi_expansion,local_box )
+        ma, mi = mask_logits.max(), mask_logits.min()
+        norm_exp_mask = (mask_logits - mi) / (ma - mi)
         if otsu:
             binary_mask = self.mask_with_otsu_pytorch(norm_exp_mask)
         else:
@@ -821,7 +823,7 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
 
         inter_class_variance = weight1[:-1] * weight2[1:] * (mean1[:-1] - mean2[1:]) ** 2
         threshold = torch.argmax(inter_class_variance)
-        print(f'threshold:{threshold/255}')
+        # print(f'threshold:{threshold/255}')
 
 
         binary_image = torch.where(image <= threshold, 0, 255)
@@ -852,7 +854,7 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
                 if self.step_num==0:
                     weight = 1.0 if 'cross' in k else 0.0
                 else:
-                    weight = 1.0
+                    weight = 1.0 if 'cross' in k else 1.0
                 # weight = 1.0 if 'self' in k else 0.0
                 # weight = 1.0 if 'cross' in k else 0.0
                 # weight = 0.5 if 'self' in k else 5.0
@@ -875,13 +877,18 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
                 self.expansion_mask_on_the_fly += mask_
 
             expansion_masks = self.expansion_mask_on_the_fly / self.step_num
+
+            if self.forbit_expand_area is None:
+                self.forbit_expand_area = self.obj_mask
+
+            # expansion_masks = self.expansion_mask_on_the_fly
             if self.step_num==1 or self.is_locating:
                 self.original_obj_mask = self.obj_mask
                 # auto threshold but avoid mask shrinking
                 candidate_mask = self.fetch_expansion_mask_from_store(expansion_masks, self.original_obj_mask, self.original_obj_mask,
                                                                       roi_expansion=False,mask_threshold=0.15,otsu=True,)
-
-                shadow_mask = torch.where(~(self.original_obj_mask > 0).bool(), candidate_mask, 0)
+                #shadow_mask -> shadow+obj mask
+                shadow_mask = torch.where(~(self.forbit_expand_area > 0).bool(), candidate_mask, 0)
                 if shadow_mask.sum() == 0:  # weak
                     self.is_locating = True
                 else:
@@ -892,28 +899,45 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
                                                                       self.original_obj_mask,
                                                                       roi_expansion=False, mask_threshold=0.15,
                                                                       otsu=True, )
-                shadow_mask = torch.where(~(self.original_obj_mask > 0).bool(), candidate_mask, 0)
+                # shadow_mask -> shadow+obj mask
+                shadow_mask = torch.where(~(self.forbit_expand_area > 0).bool(), candidate_mask, 0)
                 if not self.last_step:
                     self.obj_mask = shadow_mask
                 else:
                     self.obj_mask = candidate_mask
 
-
+            # self.expansion_mask_on_the_fly=None
             self.step_store = self.get_empty_store()
 
 
-    def contrast_operation(self,mask,contrast_beta,clamp=True,min_v=0,max_v=1,dim=-1):
-        if dim is not None:
-            mean_value = mask.mean(dim=dim)[:,:,None]
+    def contrast_operation(self,mask,contrast_beta,clamp=True,min_v=0,max_v=1,dim=-1,local_box=None):
+        if local_box is not None:
+            if dim is not None:
+                mean_value = mask.mean(dim=dim)[:, :, None]
+            else:
+                mean_value = mask.mean()
+            contrast_beta = 5.0
+            # increase varience
+            contrasted_mask = mask.clone()
+            in_box_value = contrasted_mask[local_box.bool()]
+            contrasted_mask_in_box = (in_box_value - mean_value) * contrast_beta + mean_value
+            contrasted_mask[local_box.bool()] = contrasted_mask_in_box
+            del mean_value,contrasted_mask_in_box,in_box_value
+            if clamp:
+                return contrasted_mask.clamp(min=min_v, max=max_v)
+            return contrasted_mask
         else:
-            mean_value = mask.mean()
+            if dim is not None:
+                mean_value = mask.mean(dim=dim)[:,:,None]
+            else:
+                mean_value = mask.mean()
 
-        #increase varience
-        contrasted_mask = (mask - mean_value) * contrast_beta + mean_value
-        del mean_value
-        if clamp:
-            return contrasted_mask.clamp(min=min_v,max=max_v)
-        return contrasted_mask
+            #increase varience
+            contrasted_mask = (mask - mean_value) * contrast_beta + mean_value
+            del mean_value
+            if clamp:
+                return contrasted_mask.clamp(min=min_v,max=max_v)
+            return contrasted_mask
     def get_down_h_w(self,d_ratio,h,w,seq):
         if not hasattr(self,'down_sampling_shape'):
             self.down_sampling_shape=dict()
@@ -938,12 +962,12 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
 
     def get_correlation_mask_cross(self, attn,attn_h,attn_w,local_focus_box=None):
         # correlate_maps = attn.sum(dim=-1).sum(dim=-1) #seq_len
-        correlate_maps = attn.sum(dim=-1)[:,0]  # seq_len
-        if local_focus_box is not None:
-            correlate_maps *= local_focus_box
+        correlate_maps = attn.sum(dim=-1)[:,:self.assist_len].sum(dim=-1)  # seq_len
+        # if local_focus_box is not None:
+        #     correlate_maps *= local_focus_box
         if self.use_contrast:
             correlate_maps = self.contrast_operation(correlate_maps, self.contrast_beta, clamp=True, min_v=0, max_v=1,
-                                                     dim=None)
+                                                     dim=None,local_box=local_focus_box)
         correlate_maps = correlate_maps.reshape(attn_h, attn_w)
         return correlate_maps
     def get_correlation_mask(self,attn):
@@ -979,6 +1003,9 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         self.DIFT_FEATURE_INJ = False
         self.bidirectional_loc = False
         self.last_step = False #ddim inv last step
+        self.down_sampling_shape = dict()
+        self.forbit_expand_area=None
+        self.assist_len = None
 
 
 
@@ -1083,7 +1110,7 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         local_region_mask[local_region_mask > 0] = 1
         _, L1, L2 = attention_probs.shape
         attention_probs = attention_probs.view(-1, self.heads, L1, L2)
-        assist_prompt_probs = attention_probs[1].permute(1, 2, 0).softmax(dim=0)  # 4227,77,heads  may contains bug for more than one word
+        assist_prompt_probs = attention_probs[1].permute(1, 2, 0).softmax(dim=0)  # 4227,77,heads
         key = f"{place_in_unet}_{'cross'}"
         self.step_store[key].append(self.get_correlation_mask_cross(assist_prompt_probs,attn_h,attn_w,local_focus_box))
 
@@ -1323,12 +1350,11 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         # down sample
         local_region = F.interpolate(local_region.unsqueeze(0).unsqueeze(0), size=(attn_h, attn_w),
                                      mode='nearest').squeeze(0, 1).flatten()
-        # if self.step_num==0 or self.is_locating:
-        # if False:
-        #     local_focus_box = F.interpolate(self.local_focus_box.unsqueeze(0).unsqueeze(0), size=(attn_h, attn_w),
-        #                                     mode='nearest').squeeze(0, 1).flatten()
-        # else:
-        local_focus_box = None
+        if self.step_num==0 or self.is_locating:
+            local_focus_box = F.interpolate(self.local_focus_box.unsqueeze(0).unsqueeze(0), size=(attn_h, attn_w),
+                                            mode='nearest').squeeze(0, 1).flatten()
+        else:
+            local_focus_box = None
 
         query = self.head_to_batch_dim(query)
         key = self.head_to_batch_dim(key)
@@ -1441,7 +1467,7 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
 
 
 
-    def __init__(self,block_size=7,drop_rate=0.5,layer_idx=None,start_layer=None):
+    def __init__(self,block_size=8,drop_rate=0.5,layer_idx=None,start_layer=None):
         super(Mask_Expansion_SELF_ATTN, self).__init__()
         self.step_store = self.get_empty_store()
         self.expansion_mask_store={}
@@ -1464,6 +1490,9 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         self.layer_idx = list(range(start_layer, 16))
         self.bidirectional_loc = False
         self.last_step = False
+        self.down_sampling_shape = dict()
+        self.forbit_expand_area=None
+        self.assist_len=None
         # MODEL_TYPE = {
         #     "SD": 16,
         #     "SDXL": 70

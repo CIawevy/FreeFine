@@ -22,6 +22,7 @@ import clip
 def load_clip_on_the_main_Model(main_model,device):
     # 加载CLIP模型和处理器
     model, preprocess = clip.load("ViT-B/32", device=device)
+    # model, preprocess = clip.load("ViT-L/14", device=device)
     main_model.clip = model
     main_model.clip_process = preprocess
     return main_model
@@ -41,25 +42,25 @@ sd_inpainter = StableDiffusionInpaintPipeline.from_pretrained(
 sd_inpainter.enable_attention_slicing()
 
 
-model_configs = {
-    'vits': {'encoder': 'vits', 'features': 64, 'out_channels': [48, 96, 192, 384]},
-    'vitb': {'encoder': 'vitb', 'features': 128, 'out_channels': [96, 192, 384, 768]},
-    'vitl': {'encoder': 'vitl', 'features': 256, 'out_channels': [256, 512, 1024, 1024]},
-    'vitg': {'encoder': 'vitg', 'features': 384, 'out_channels': [1536, 1536, 1536, 1536]}
-}
-
-encoder = 'vits'  # or 'vits', 'vitb', 'vitg'
-
-depth_anything_v2 = DepthAnythingV2(**model_configs[encoder])
-depth_anything_v2.load_state_dict(
-    torch.load(f'/data/Hszhu/prompt-to-prompt/depth-anything/depth_anything_v2_{encoder}.pth', map_location='cpu'))
-depth_anything_v2.to(device).eval()
+# model_configs = {
+#     'vits': {'encoder': 'vits', 'features': 64, 'out_channels': [48, 96, 192, 384]},
+#     'vitb': {'encoder': 'vitb', 'features': 128, 'out_channels': [96, 192, 384, 768]},
+#     'vitl': {'encoder': 'vitl', 'features': 256, 'out_channels': [256, 512, 1024, 1024]},
+#     'vitg': {'encoder': 'vitg', 'features': 384, 'out_channels': [1536, 1536, 1536, 1536]}
+# }
+#
+# encoder = 'vits'  # or 'vits', 'vitb', 'vitg'
+#
+# depth_anything_v2 = DepthAnythingV2(**model_configs[encoder])
+# depth_anything_v2.load_state_dict(
+#     torch.load(f'/data/Hszhu/prompt-to-prompt/depth-anything/depth_anything_v2_{encoder}.pth', map_location='cpu'))
+# depth_anything_v2.to(device).eval()
 
 
 pretrained_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-v1-5/"
 lora_path = gr.Textbox(value="./lora_tmp", label="LoRA path")
-# vae_path = "/data/Hszhu/prompt-to-prompt/sd-vae-ft-mse"
-vae_path='default'
+vae_path = "/data/Hszhu/prompt-to-prompt/sd-vae-ft-mse"
+# vae_path='default'
 #implement from p2p & FPE they have the same scheduler config which is different from official code
 # scheduler = DDIMScheduler(beta_start=0.00085, beta_end=0.012, beta_schedule="scaled_linear", clip_sample=False, set_alpha_to_one=False)
 # model = ClawerModels.from_pretrained(pretrained_model_path,scheduler=scheduler).to(device)
@@ -79,7 +80,7 @@ model = load_clip_on_the_main_Model(model,device)
 # model.unet = DragonUNet2DConditionModel.from_pretrained(pretrained_model_path, subfolder="unet", torch_dtype=precision).to(device)
 # model.inpainter = None
 model.sd_inpainter = sd_inpainter
-model.depth_anything = depth_anything_v2
+# model.depth_anything = depth_anything_v2
 # model.depth_anything = depth_anything
 # model.transform = transform
 controller = Mask_Expansion_SELF_ATTN(block_size=8,drop_rate=0.5,start_layer=10)

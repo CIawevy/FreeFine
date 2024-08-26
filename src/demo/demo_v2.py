@@ -1,9 +1,29 @@
 import gradio as gr
 import numpy as np
 from src.demo.utils import get_point, store_img, get_point_move, store_img_move, clear_points, upload_image_move, segment_with_points, segment_with_points_paste, fun_clear, paste_with_mask_and_offset,draw_inpaint_area
-
-
-
+from lora.lora_utils import  train_lora
+def train_lora_interface(original_image,
+                         prompt,
+                         # model_path,
+                         # vae_path,
+                         lora_path,
+                         lora_step,
+                         lora_lr,
+                         lora_batch_size,
+                         lora_rank,
+                         progress=gr.Progress()):
+    train_lora(
+        original_image,
+        prompt,
+        # model_path,
+        # vae_path,
+        lora_path,
+        lora_step,
+        lora_lr,
+        lora_batch_size,
+        lora_rank,
+        progress)
+    return "Training LoRA Done!"
 # MyExamples
 examples_CPIG_FULL_3D = [
     [
@@ -585,16 +605,29 @@ def create_my_demo_full_2D_magic(runner):
                     prompt = gr.Textbox(label="Prompt")
 
                     gr.Markdown("## 3.Assist Prompt")
-                    assist_prompt = gr.Textbox(label="Assist-Prompt")
+                    assist_prompt = gr.Textbox(value='shadow',label="Assist-Prompt")
 
                     gr.Markdown("## 4.Inpaint Prompt")
-                    INP_prompt = gr.Textbox(label="INP_Prompt")
-
+                    INP_prompt = gr.Textbox(value='a photo of a background, a photo of an empty place',label="INP_Prompt")
+                    gr.Markdown("## 5.Lora Path")
+                    lora_path = gr.Textbox(value="./lora_tmp", label="LoRA path")
+                    # general parameters
+                    # with gr.Row():
+                    #     lora_path = gr.Textbox(value="./lora_tmp", label="LoRA path")
+                    #     lora_status_bar = gr.Textbox(label="display LoRA training status")
+                    #     train_lora_button = gr.Button(value='Train LoRA', scale=0.3)
 
 
                     with gr.Row():
                         run_button = gr.Button("Edit")
                         clear_button = gr.Button("Clear")
+
+                    # with gr.Tab("LoRA Parameters"):
+                    #     with gr.Row():
+                    #         lora_step = gr.Number(value=60, label="LoRA training steps", precision=0)
+                    #         lora_lr = gr.Number(value=0.0005, label="LoRA learning rate")
+                    #         lora_batch_size = gr.Number(value=4, label="LoRA batch size", precision=0)
+                    #         lora_rank = gr.Number(value=16, label="LoRA rank", precision=0)
 
                     with gr.Box():
                         guidance_scale = gr.Slider(
@@ -742,6 +775,9 @@ def create_my_demo_full_2D_magic(runner):
                     gr.Markdown("<h5><center>TargetMask</center></h5>")
                     TGT_MSK = gr.Gallery().style(grid=1, height='auto')
 
+                    gr.Markdown("<h5><center>inpaint BG</center></h5>")
+                    inp_bg = gr.Gallery().style(grid=1, height='auto')
+
                 img_draw_box.select(
                     segment_with_points,
                     inputs=[img_draw_box, original_image, global_points, global_point_label],
@@ -752,6 +788,19 @@ def create_my_demo_full_2D_magic(runner):
                     [original_image, img_ref, selected_points],
                     [img_ref, original_image, selected_points, ],
                 )
+                # train_lora_button.click(
+                #     train_lora_interface,
+                #     [original_image,
+                #      prompt,
+                #      # model_path,
+                #      # vae_path,
+                #      lora_path,
+                #      lora_step,
+                #      lora_lr,
+                #      lora_batch_size,
+                #      lora_rank],
+                #     [lora_status_bar]
+                # )
 
         with gr.Column():
             gr.Markdown("Try some of the examples below ⬇️")
@@ -763,8 +812,8 @@ def create_my_demo_full_2D_magic(runner):
         run_button.click(fn=runner,
                          inputs=[ original_image,prompt, INP_prompt,selected_points,seed, guidance_scale, num_step, max_resolution, mode, start_step, resize_scale,
                                   rotation_angle, flip_horizontal,flip_vertical,eta, use_mask_expansion,exp_step,contrast_beta, end_step,
-                                feature_injection, FI_range,sim_thr, DIFT_LAYER_IDX, use_mtsa,mask_ref,assist_prompt],
-                         outputs=[output_edit, refer_edit,INP_IMG, INP_Mask, TGT_MSK])
+                                feature_injection, FI_range,sim_thr, DIFT_LAYER_IDX, use_mtsa,mask_ref,assist_prompt,lora_path],
+                         outputs=[output_edit, refer_edit,INP_IMG, INP_Mask, TGT_MSK,inp_bg])
         clear_button.click(fn=fun_clear,
                            inputs=[original_image, mask, prompt, INP_prompt, ],
                            outputs=[original_image, mask, prompt, INP_prompt, ])
