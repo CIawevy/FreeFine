@@ -167,7 +167,7 @@ def main():
     # 使用spawn启动方法
     mp.set_start_method('spawn', force=True)
 
-    gpu_ids = [0, 1, 2, 3, 4, 5, 6, 7]
+    gpu_ids = [ 0, 1, 2]
     # gpu_ids = [0,1,2,3]
     # gpu_ids = [0,1]
     set_cuda_visible_devices(gpu_ids)

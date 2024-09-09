@@ -3796,6 +3796,7 @@ class ClawerModel_v2(StableDiffusionPipeline):
         return final_image, image_with_hole,semantic_repaired,transformed_mask,ddpm_region
 
 
+
     def Magic_Editing_Baseline_2D(self, original_image,prompt, INP_prompt,selected_points,
                                   seed, guidance_scale, num_step, max_resolution, mode, start_step, resize_scale,
                                   rotation_angle, flip_horizontal,flip_vertical,eta=0, use_mask_expansion=True,expansion_step=4,contrast_beta=1.67, end_step=10,
@@ -5326,7 +5327,7 @@ class AutoPipeReggio(StableDiffusionPipeline):
             blending=True,
             feature_injection_allowed=True,
             feature_injection_timpstep_range=(900, 600),
-            use_mtsa=True,
+            use_mtsa=True,verbose=False,
             **kwds):
         DEVICE = self.device
         assert guidance_scale > 1.0, 'USING THIS MODULE CFG Must > 1.0'
@@ -5351,7 +5352,8 @@ class AutoPipeReggio(StableDiffusionPipeline):
         else:
             batch_size = prompt_embeds.shape[0]
             text_embeddings = prompt_embeds
-        print("input text embeddings :", text_embeddings.shape)
+        if not verbose:
+            print("input text embeddings :", text_embeddings.shape)
 
         # define initial latents if not predefined
         if latents is None:
@@ -5372,8 +5374,8 @@ class AutoPipeReggio(StableDiffusionPipeline):
         )
         unconditional_embeddings = self.text_encoder(unconditional_input.input_ids.to(DEVICE))[0]
         text_embeddings = torch.cat([unconditional_embeddings, text_embeddings], dim=0)
-
-        print("latents shape: ", latents.shape)
+        if not verbose:
+            print("latents shape: ", latents.shape)
         # iterative sampling
         self.scheduler.set_timesteps(num_inference_steps)
         # print("Valid timesteps: ", reversed(self.scheduler.timesteps))
@@ -5381,75 +5383,145 @@ class AutoPipeReggio(StableDiffusionPipeline):
 
         # original sample
         # TODO :EACH STEP :need h feature as input ,next step need new h feature from new t and new init latent
-        assert foreground_mask is not None, 'FOR BG PRESERVATION foreground_mask should not be None'
+        # assert foreground_mask is not None, 'FOR BG PRESERVATION foreground_mask should not be None'
         start_step = num_inference_steps - num_actual_inference_steps
         h_feature = None
         self.h_feature_cfg = True
-        for i, t in enumerate(tqdm(self.scheduler.timesteps, desc="DDIM Sampler")):
-            if num_actual_inference_steps is not None and i < num_inference_steps - num_actual_inference_steps:
-                continue
-            timestep = t.detach().item()
-            if timestep > feature_injection_timpstep_range[0] or timestep < feature_injection_timpstep_range[1]:
-                self.controller.set_FI_forbid()
-            else:
-                if feature_injection_allowed:
-                    print(f"Feature Injection is allowed at timestep={timestep}")
-                    self.controller.set_FI_allow()
-                else:
+        if not verbose:
+            for i, t in enumerate(tqdm(self.scheduler.timesteps, desc="DDIM Sampler")):
+                if num_actual_inference_steps is not None and i < num_inference_steps - num_actual_inference_steps:
+                    continue
+                timestep = t.detach().item()
+                if timestep > feature_injection_timpstep_range[0] or timestep < feature_injection_timpstep_range[1]:
                     self.controller.set_FI_forbid()
+                else:
+                    if feature_injection_allowed:
+                        if not verbose:
+                            print(f"Feature Injection is allowed at timestep={timestep}")
+                        self.controller.set_FI_allow()
+                    else:
+                        self.controller.set_FI_forbid()
 
-            # TODO: BG preservation h feature
-            # if i < 50 - end_step:
-            #     self.controller.log_mask = False
-            #     h_feature = self.prepare_h_feature(latents[0,None], t, prompt, BG_preservation=False,
-            #                                        foreground_mask=foreground_mask, lr=0.1, lam=1, eta=1.0,
-            #                                        refer_latent=refer_latents[i - start_step + 1],
-            #                                        h_feature_input=h_feature,)
-            # [edit,ref]
-            ref_latent = refer_latents[i - start_step + 1][1]
-            latents[1] = ref_latent
-            if i < 50 - end_step:
-                self.controller.share_attn = use_mtsa  # allow SDSA
-            else:
-                self.controller.share_attn = False
-                # h_feature = torch.cat([h_feature] * 2)
-            # if guidance_scale > 1.:
-            with torch.no_grad():
-
-                model_inputs = torch.cat([latents] * 2)
-                # h_feature_inputs = torch.cat([h_feature] * 2)
-                h_feature_inputs = h_feature
-                if unconditioning is not None and isinstance(unconditioning, list):
-                    _, text_embeddings = text_embeddings.chunk(2)
-                    text_embeddings = torch.cat(
-                        [unconditioning[i].expand(*text_embeddings.shape), text_embeddings])
-                # predict the noise
-                # if guidance_scale > 1:
-                self.controller.log_mask = False
+                # TODO: BG preservation h feature
+                # if i < 50 - end_step:
+                #     self.controller.log_mask = False
+                #     h_feature = self.prepare_h_feature(latents[0,None], t, prompt, BG_preservation=False,
+                #                                        foreground_mask=foreground_mask, lr=0.1, lam=1, eta=1.0,
+                #                                        refer_latent=refer_latents[i - start_step + 1],
+                #                                        h_feature_input=h_feature,)
+                # [edit,ref]
+                ref_latent = refer_latents[i - start_step + 1][1]
+                latents[1] = ref_latent
                 if i < 50 - end_step:
-                    noise_pred = self.unet(model_inputs, t, encoder_hidden_states=text_embeddings,
-                                           h_sample=h_feature_inputs)
+                    self.controller.share_attn = use_mtsa  # allow SDSA
                 else:
-                    noise_pred = self.unet(model_inputs, t, encoder_hidden_states=text_embeddings)
+                    self.controller.share_attn = False
+                    # h_feature = torch.cat([h_feature] * 2)
+                # if guidance_scale > 1.:
+                with torch.no_grad():
 
-                noise_pred_uncon, noise_pred_con = noise_pred.chunk(2, dim=0)
-                if not blending:
-                    noise_pred = noise_pred_uncon + guidance_scale * (noise_pred_con - noise_pred_uncon)
+                    model_inputs = torch.cat([latents] * 2)
+                    # h_feature_inputs = torch.cat([h_feature] * 2)
+                    h_feature_inputs = h_feature
+                    if unconditioning is not None and isinstance(unconditioning, list):
+                        _, text_embeddings = text_embeddings.chunk(2)
+                        text_embeddings = torch.cat(
+                            [unconditioning[i].expand(*text_embeddings.shape), text_embeddings])
+                    # predict the noise
+                    # if guidance_scale > 1:
+                    self.controller.log_mask = False
+                    if i < 50 - end_step:
+                        noise_pred = self.unet(model_inputs, t, encoder_hidden_states=text_embeddings,
+                                               h_sample=h_feature_inputs)
+                    else:
+                        noise_pred = self.unet(model_inputs, t, encoder_hidden_states=text_embeddings)
+
+                    noise_pred_uncon, noise_pred_con = noise_pred.chunk(2, dim=0)
+                    if not blending:
+                        noise_pred = noise_pred_uncon + guidance_scale * (noise_pred_con - noise_pred_uncon)
+                    else:
+                        local_text_guidance = guidance_scale * (noise_pred_con - noise_pred_uncon) * obj_mask
+                        noise_pred = noise_pred_uncon + local_text_guidance
+                    # compute the previous noise sample x_t -> x_t-1
+                    # YUJUN: right now, the only difference between step here and step in scheduler
+                    # is that scheduler version would clamp pred_x0 between [-1,1]
+                    # don't know if that's gonna have huge impact
+                    # latents = self.scheduler.step(noise_pred, t, latents, return_dict=False, eta=eta)[0]
+                    # full_mask = torch.ones_like(obj_mask)
+                    latents = self.ctrl_step(noise_pred, t, latents, local_var_reg, eta=eta)[0]
+                    latents_list.append(latents)
+            image = self.latent2image(latents, return_type="pt")
+            if return_intermediates:
+                return image, latents_list
+            return image
+        else:
+            for i, t in enumerate(self.scheduler.timesteps):
+                if num_actual_inference_steps is not None and i < num_inference_steps - num_actual_inference_steps:
+                    continue
+                timestep = t.detach().item()
+                if timestep > feature_injection_timpstep_range[0] or timestep < feature_injection_timpstep_range[1]:
+                    self.controller.set_FI_forbid()
                 else:
-                    local_text_guidance = guidance_scale * (noise_pred_con - noise_pred_uncon) * obj_mask
-                    noise_pred = noise_pred_uncon + local_text_guidance
-                # compute the previous noise sample x_t -> x_t-1
-                # YUJUN: right now, the only difference between step here and step in scheduler
-                # is that scheduler version would clamp pred_x0 between [-1,1]
-                # don't know if that's gonna have huge impact
-                # latents = self.scheduler.step(noise_pred, t, latents, return_dict=False, eta=eta)[0]
-                # full_mask = torch.ones_like(obj_mask)
-                latents = self.ctrl_step(noise_pred, t, latents, local_var_reg, eta=eta)[0]
-                latents_list.append(latents)
-        image = self.latent2image(latents, return_type="pt")
-        if return_intermediates:
-            return image, latents_list
-        return image
+                    if feature_injection_allowed:
+                        if not verbose:
+                            print(f"Feature Injection is allowed at timestep={timestep}")
+                        self.controller.set_FI_allow()
+                    else:
+                        self.controller.set_FI_forbid()
+
+                # TODO: BG preservation h feature
+                # if i < 50 - end_step:
+                #     self.controller.log_mask = False
+                #     h_feature = self.prepare_h_feature(latents[0,None], t, prompt, BG_preservation=False,
+                #                                        foreground_mask=foreground_mask, lr=0.1, lam=1, eta=1.0,
+                #                                        refer_latent=refer_latents[i - start_step + 1],
+                #                                        h_feature_input=h_feature,)
+                # [edit,ref]
+                ref_latent = refer_latents[i - start_step + 1][1]
+                latents[1] = ref_latent
+                if i < 50 - end_step:
+                    self.controller.share_attn = use_mtsa  # allow SDSA
+                else:
+                    self.controller.share_attn = False
+                    # h_feature = torch.cat([h_feature] * 2)
+                # if guidance_scale > 1.:
+                with torch.no_grad():
+
+                    model_inputs = torch.cat([latents] * 2)
+                    # h_feature_inputs = torch.cat([h_feature] * 2)
+                    h_feature_inputs = h_feature
+                    if unconditioning is not None and isinstance(unconditioning, list):
+                        _, text_embeddings = text_embeddings.chunk(2)
+                        text_embeddings = torch.cat(
+                            [unconditioning[i].expand(*text_embeddings.shape), text_embeddings])
+                    # predict the noise
+                    # if guidance_scale > 1:
+                    self.controller.log_mask = False
+                    if i < 50 - end_step:
+                        noise_pred = self.unet(model_inputs, t, encoder_hidden_states=text_embeddings,
+                                               h_sample=h_feature_inputs)
+                    else:
+                        noise_pred = self.unet(model_inputs, t, encoder_hidden_states=text_embeddings)
+
+                    noise_pred_uncon, noise_pred_con = noise_pred.chunk(2, dim=0)
+                    if not blending:
+                        noise_pred = noise_pred_uncon + guidance_scale * (noise_pred_con - noise_pred_uncon)
+                    else:
+                        local_text_guidance = guidance_scale * (noise_pred_con - noise_pred_uncon) * obj_mask
+                        noise_pred = noise_pred_uncon + local_text_guidance
+                    # compute the previous noise sample x_t -> x_t-1
+                    # YUJUN: right now, the only difference between step here and step in scheduler
+                    # is that scheduler version would clamp pred_x0 between [-1,1]
+                    # don't know if that's gonna have huge impact
+                    # latents = self.scheduler.step(noise_pred, t, latents, return_dict=False, eta=eta)[0]
+                    # full_mask = torch.ones_like(obj_mask)
+                    latents = self.ctrl_step(noise_pred, t, latents, local_var_reg, eta=eta)[0]
+                    latents_list.append(latents)
+            image = self.latent2image(latents, return_type="pt")
+            if return_intermediates:
+                return image, latents_list
+            return image
+
 
     @torch.no_grad()
     def Expansion_invert(
@@ -5528,6 +5600,7 @@ class AutoPipeReggio(StableDiffusionPipeline):
             guidance_scale=7.5,
             eta=0.0,
             return_intermediates=False,
+            verbose=False,
             **kwds):
 
         """
@@ -5550,7 +5623,8 @@ class AutoPipeReggio(StableDiffusionPipeline):
             return_tensors="pt"
         )
         text_embeddings = self.text_encoder(text_input.input_ids.to(DEVICE))[0]
-        print("input text embeddings :", text_embeddings.shape)
+        if not verbose:
+            print("input text embeddings :", text_embeddings.shape)
         # define initial latents
         latents = self.image2latent(image)
 
@@ -5572,31 +5646,60 @@ class AutoPipeReggio(StableDiffusionPipeline):
         # print("attributes: ", self.scheduler.__dict__)
         latents_list = [latents]
         pred_x0_list = [latents]
-        for i, t in enumerate(tqdm(reversed(self.scheduler.timesteps), desc="DDIM Inversion")):
-            if num_actual_inference_steps is not None and i >= num_actual_inference_steps:
-                continue
+        if not verbose:
+            for i, t in enumerate(tqdm(reversed(self.scheduler.timesteps), desc="DDIM Inversion")):
+                if num_actual_inference_steps is not None and i >= num_actual_inference_steps:
+                    continue
 
-            if guidance_scale > 1.:
-                model_inputs = torch.cat([latents] * 2)
-            else:
-                model_inputs = latents
+                if guidance_scale > 1.:
+                    model_inputs = torch.cat([latents] * 2)
+                else:
+                    model_inputs = latents
 
-            # predict the noise
-            noise_pred = self.unet(model_inputs, t, encoder_hidden_states=text_embeddings)
-            if guidance_scale > 1.:
-                noise_pred_uncon, noise_pred_con = noise_pred.chunk(2, dim=0)
-                noise_pred = noise_pred_uncon + guidance_scale * (noise_pred_con - noise_pred_uncon)
-            # compute the previous noise sample x_t-1 -> x_t
-            latents, pred_x0 = self.inv_step(noise_pred, t, latents)
-            latents_list.append(latents)
-            pred_x0_list.append(pred_x0)
-        print(f'leng latent inv {len(latents_list)}')
-        print(f'shape latent:{latents.shape}')
-        if return_intermediates:
-            # return the intermediate laters during inversion
-            # pred_x0_list = [self.latent2image(img, return_type="pt") for img in pred_x0_list]
-            return latents, latents_list
-        return latents
+                # predict the noise
+                noise_pred = self.unet(model_inputs, t, encoder_hidden_states=text_embeddings)
+                if guidance_scale > 1.:
+                    noise_pred_uncon, noise_pred_con = noise_pred.chunk(2, dim=0)
+                    noise_pred = noise_pred_uncon + guidance_scale * (noise_pred_con - noise_pred_uncon)
+                # compute the previous noise sample x_t-1 -> x_t
+                latents, pred_x0 = self.inv_step(noise_pred, t, latents)
+                latents_list.append(latents)
+                pred_x0_list.append(pred_x0)
+            if not verbose:
+                print(f'leng latent inv {len(latents_list)}')
+                print(f'shape latent:{latents.shape}')
+            if return_intermediates:
+                # return the intermediate laters during inversion
+                # pred_x0_list = [self.latent2image(img, return_type="pt") for img in pred_x0_list]
+                return latents, latents_list
+            return latents
+        else:
+            for i, t in enumerate(reversed(self.scheduler.timesteps)):
+                if num_actual_inference_steps is not None and i >= num_actual_inference_steps:
+                    continue
+
+                if guidance_scale > 1.:
+                    model_inputs = torch.cat([latents] * 2)
+                else:
+                    model_inputs = latents
+
+                    # predict the noise
+                noise_pred = self.unet(model_inputs, t, encoder_hidden_states=text_embeddings)
+                if guidance_scale > 1.:
+                    noise_pred_uncon, noise_pred_con = noise_pred.chunk(2, dim=0)
+                    noise_pred = noise_pred_uncon + guidance_scale * (noise_pred_con - noise_pred_uncon)
+                # compute the previous noise sample x_t-1 -> x_t
+                latents, pred_x0 = self.inv_step(noise_pred, t, latents)
+                latents_list.append(latents)
+                pred_x0_list.append(pred_x0)
+            if not verbose:
+                print(f'leng latent inv {len(latents_list)}')
+                print(f'shape latent:{latents.shape}')
+            if return_intermediates:
+                # return the intermediate laters during inversion
+                # pred_x0_list = [self.latent2image(img, return_type="pt") for img in pred_x0_list]
+                return latents, latents_list
+            return latents
 
     def dilate_mask(self, mask, dilate_factor=15):
         mask = mask.astype(np.uint8)
@@ -5892,7 +5995,39 @@ class AutoPipeReggio(StableDiffusionPipeline):
             return_img = cv2.cvtColor(return_img, cv2.COLOR_BGR2RGB)
             in_w, in_h = return_img.shape[:2]
             return return_img, in_w
+    def mask_reduce_dim(self,mask):
+        if mask.ndim==3:
+            mask = mask[:,:,0]
+        return mask
+    def generated_refine_results(self, ori_img, ori_mask, coarse_input, target_mask, ddpm_region_mask, guidance_text,
+                                 guidance_scale, eta, contrast_beta=1.67, end_step=10, num_step=50, start_step=25,
+                                 feature_injection=True, FI_range=(900, 680), sim_thr=0.5, DIFT_LAYER_IDX=[0, 1, 2, 3],
+                                 use_mtsa=True, ):
+        verbose=True
+        ori_mask = self.mask_reduce_dim(ori_mask)
+        target_mask = self.mask_reduce_dim(target_mask)
+        ddpm_region_mask = self.mask_reduce_dim(ddpm_region_mask)
+        self.controller.contrast_beta = contrast_beta
+        # DDIM INVERSION
+        shifted_mask, inverted_latent = self.DDIM_inversion_func(img=coarse_input, mask=target_mask,
+                                                                 prompt="",
+                                                                 num_step=num_step,
+                                                                 start_step=start_step,
+                                                                 ref_img=ori_img,verbose=verbose)  # ndarray mask
 
+        edit_gen_image, refer_gen_image, = self.Details_Preserving_regeneration(coarse_input, inverted_latent,
+                                                                                guidance_text,
+                                                                                target_mask, ori_mask,
+                                                                                num_steps=num_step,
+                                                                                start_step=start_step,
+                                                                                end_step=end_step,
+                                                                                guidance_scale=guidance_scale, eta=eta,
+                                                                                feature_injection=feature_injection,
+                                                                                FI_range=FI_range, sim_thr=sim_thr,
+                                                                                DIFT_LAYER_IDX=DIFT_LAYER_IDX,
+                                                                                use_mtsa=use_mtsa, ref_img=ori_img,
+                                                                                ddpm_region=ddpm_region_mask,verbose=verbose)
+        return edit_gen_image
     def Magic_Editing_Baseline_SV3D(self, original_image, transformed_image, prompt, INP_prompt,
                                     seed, guidance_scale, num_step, max_resolution, mode, dilate_kernel_size,
                                     start_step,
@@ -6139,6 +6274,53 @@ class AutoPipeReggio(StableDiffusionPipeline):
             print(f'0:no results left after filter, thus choosing lama results')
             return img_lists[0]
 
+    @torch.no_grad()
+    def sd_only_results_caption_filter(self, img_lists, mask, class_text, ):
+
+        def get_matching_score_tag(pos_features, neg_features, target_features):
+            sim_pos = torch.matmul(target_features, pos_features.T).mean(dim=-1)
+            sim_neg = torch.matmul(target_features, neg_features.T).mean(dim=-1)
+            return sim_pos - sim_neg
+
+        # [ndarray,ndarray,.....]
+        neg_text_list = [class_text] + ['an object', 'an item', 'a person', 'texts', ]
+        pos_text_list = ['a background', 'an empty_scene', 'surroundings', 'environment', 'a scenery']
+        base_format = 'a photo of'
+        neg_text_list = [f'{base_format} {i}' for i in neg_text_list]
+        pos_text_list = [f'{base_format} {i}' for i in pos_text_list]
+
+        preprocessed_imgs = self.crop_image_with_mask(img_lists, mask)  # crop is enough
+        # preprocessed_imgs = self.pre_process_with_mask(img_lists, mask)
+        # preprocessed_imgs = self.crop_image_with_mask(preprocessed_imgs,mask)
+        img_lst = np.array(img_lists)
+        pil_img_lst = \
+            [preprocess_tag_pil_img(self.numpy_to_pil(crop_img)[0], self.device) for crop_img in preprocessed_imgs]
+        # stack_images = torch.stack(
+        #     [self.clip_process(crop_img_pil).to(self.device) for crop_img_pil in pil_img_lst])
+        # Tag2Text
+        res_tag2text_list = [inference_tag2text(image_pillow, self.tag2text, 'None')[2] for image_pillow in pil_img_lst]
+        # TODO:思考一下如何控制tag2text生成文本数量，同时如何对存在object的单词进行惩罚，另外要防止幻觉该怎么做？
+        # 对每个词进行编码
+        text_feature_neg = self.clip.encode_text(clip.tokenize(neg_text_list).to(self.device))
+        text_feature_pos = self.clip.encode_text(clip.tokenize(pos_text_list).to(self.device))
+        # normalize and encode
+        text_feature_neg = text_feature_neg / text_feature_neg.norm(dim=1, keepdim=True)
+        text_feature_pos = text_feature_pos / text_feature_pos.norm(dim=1, keepdim=True)
+        text_feature_can = self.clip.encode_text(clip.tokenize(res_tag2text_list).to(self.device))
+        text_feature_can = text_feature_can / text_feature_can.norm(dim=1, keepdim=True)
+        # TODO: multiple text candidates
+        tag_sim_scores = get_matching_score_tag(pos_features=text_feature_pos, neg_features=text_feature_neg,
+                                                target_features=text_feature_can)
+
+        sd_tag_scores = tag_sim_scores
+        final_match_indices = torch.argmax(sd_tag_scores, dim=0).item()
+        final_inpainting = img_lst[int(final_match_indices)]
+        final_inpainting_caption = res_tag2text_list[int(final_match_indices)]
+        print(f'choosing inpainting results with caption:"{final_inpainting_caption}"')
+        # self.temp_view_img(final_inpainting)
+        return final_inpainting
+
+
     def move_and_inpaint(self, ori_img, exp_mask, dx, dy, inpainter=None, mode=None,
                          inp_prompt=None, inp_prompt_negative=None, obj_text=None, resize_scale=1.0,
                          rotation_angle=0, source_mask=None,
@@ -6231,7 +6413,7 @@ class AutoPipeReggio(StableDiffusionPipeline):
         return final_image, image_with_hole, semantic_repaired, transformed_mask, ddpm_region
 
     def Reggio_inpainting_func(self, ori_img, exp_mask, inpainter=None,
-                               inp_prompt=None, inp_prompt_negative=None, samples_per_time=10):
+                               inp_prompt=None, inp_prompt_negative=None, samples_per_time=10,mode='lama_only'):
         # lama & SD
         if isinstance(ori_img, Image.Image):
             ori_img = np.array(ori_img)
@@ -6248,39 +6430,49 @@ class AutoPipeReggio(StableDiffusionPipeline):
         ori_image_back_ground = np.where(exp_mask[:, :, None], 0, ori_img)
         image_with_hole = ori_image_back_ground
 
+        if 'lama' not in mode: #lama_only lama_sd sd
+            coarse_repaired = inpainter(ori_image_back_ground, exp_mask.astype(np.uint8) * 255,)#lama
+        else:
+            coarse_repaired = ori_img # no black filled
 
-        coarse_repaired = inpainter(ori_image_back_ground, exp_mask.astype(np.uint8) * 255, )#lama
+        if mode == 'lama_only':
+            if coarse_repaired.shape[:2] != image_with_hole.shape[:2]:
+                h, w = image_with_hole.shape[:2]
+                coarse_repaired = cv2.resize(coarse_repaired, (w, h), interpolation=cv2.INTER_LANCZOS4)
+            return coarse_repaired
+        else:
+            inpaint_mask = Image.fromarray(exp_mask.astype(np.uint8) * 255)
+            sd_to_inpaint_img = Image.fromarray(coarse_repaired)
+            # print(f'SD inpainting Processing:')
+            semantic_repaired = \
+                self.sd_inpainter(prompt=inp_prompt, image=sd_to_inpaint_img, mask_image=inpaint_mask,
+                                  guidance_scale=7.5, eta=1.0,
+                                  num_inference_steps=10, negative_prompt=inp_prompt_negative,
+                                  num_images_per_prompt=samples_per_time,).images
+            # resize
+            # semantic_repaired_new = [coarse_repaired]
+            semantic_repaired_new = []
+            h, w = image_with_hole.shape[:2]
+            for sd_inp_res in semantic_repaired:
+                sd_inp_res = np.array(sd_inp_res)
+                if sd_inp_res.shape != image_with_hole.shape:
+                    # print(f'inpainted image {semantic_repaired.shape} -> original size {image_with_hole.shape}')
+                    sd_inp_res = cv2.resize(sd_inp_res, (w, h), interpolation=cv2.INTER_LANCZOS4)
+                semantic_repaired_new.append(sd_inp_res)
+            return semantic_repaired_new
 
 
-        inpaint_mask = Image.fromarray(exp_mask.astype(np.uint8) * 255)
-        sd_to_inpaint_img = Image.fromarray(coarse_repaired)
-        # print(f'SD inpainting Processing:')
-        semantic_repaired = \
-            self.sd_inpainter(prompt=inp_prompt, image=sd_to_inpaint_img, mask_image=inpaint_mask,
-                              guidance_scale=7.5, eta=1.0,
-                              num_inference_steps=10, negative_prompt=inp_prompt_negative,
-                              num_images_per_prompt=samples_per_time,).images
-        # resize
-        # semantic_repaired_new = [coarse_repaired]
-        semantic_repaired_new = []
-        h, w = image_with_hole.shape[:2]
-        for sd_inp_res in semantic_repaired:
-            sd_inp_res = np.array(sd_inp_res)
-            if sd_inp_res.shape != image_with_hole.shape:
-                # print(f'inpainted image {semantic_repaired.shape} -> original size {image_with_hole.shape}')
-                sd_inp_res = cv2.resize(sd_inp_res, (w, h), interpolation=cv2.INTER_LANCZOS4)
-            semantic_repaired_new.append(sd_inp_res)
-        return semantic_repaired_new,coarse_repaired
     def expansion_and_inpainting_func(self, img, mask_pools,label_list,max_resolution=768,
                                   seed=42,expansion_step=4, contrast_beta=1.67,max_try_times=10,samples_per_time=10,
-                                  assist_prompt=""):
+                                  assist_prompt="",mode='lama_only'):
+        assert mode in ['lama_only','sd','lama_sd']
         # seed_everything(seed)
         np.random.seed(int(time.time()))
         random_seed = np.random.randint(0, 2 ** 32 - 1)
         my_seed_everything(random_seed)
         expansion_mask_list = []
         inpainting_results_list = []
-        lama_inpaint_results_list = []
+        # lama_inpaint_results_list = []
         if isinstance(assist_prompt, str):
             assist_prompt = [item.strip() for item in assist_prompt.split(',')]
         #resize to avoid memory promblem in expansion process
@@ -6314,20 +6506,28 @@ class AutoPipeReggio(StableDiffusionPipeline):
             INP_prompt_negative = f'object,{obj_text},shadow,text'
             inpainting_results_temp = []
             print(f'idx:{idx} | proceeding inpainting:')
-            for try_time in range(max_try_times):
-                np.random.seed(int(time.time()))
-                random_seed = np.random.randint(0, 2 ** 32 - 1)
-                my_seed_everything(random_seed)
-                inpainting_result,lama_result = self.Reggio_inpainting_func(img, expand_mask, self.inpainter, INP_prompt, INP_prompt_negative, samples_per_time)
-                inpainting_results_temp.extend(inpainting_result)
-            # Filter
-            inpainting_results_temp.insert(0,lama_result)
-            inpainting_results_temp.append(img)
-            best_sd_inp_result = self.sd_inpaint_results_caption_filter(inpainting_results_temp, expand_mask, obj_text)
-            inpainting_results_list.append(best_sd_inp_result)
-            lama_inpaint_results_list.append(lama_result)
+            if 'sd' not in mode:
+                lama_result = self.Reggio_inpainting_func(img, expand_mask, self.inpainter, INP_prompt, INP_prompt_negative, samples_per_time,mode)
+                inpainting_results_list.append(lama_result)
+            else:
+                for try_time in range(max_try_times):
+                    np.random.seed(int(time.time()))
+                    random_seed = np.random.randint(0, 2 ** 32 - 1)
+                    my_seed_everything(random_seed)
+                    # inpainting_result,lama_result = self.Reggio_inpainting_func(img, expand_mask, self.inpainter, INP_prompt,
+                    #                                                 INP_prompt_negative, samples_per_time, mode)
+                    inpainting_result = self.Reggio_inpainting_func(img, expand_mask, self.inpainter, INP_prompt, INP_prompt_negative, samples_per_time,mode)
+                    inpainting_results_temp.extend(inpainting_result)
+                # Filter
+                # inpainting_results_temp.insert(0,lama_result)
+                # inpainting_results_temp.append(img)
+                # best_sd_inp_result = self.sd_inpaint_results_caption_filter(inpainting_results_temp, expand_mask, obj_text)
+                best_sd_inp_result = self.sd_only_results_caption_filter(inpainting_results_temp, expand_mask,
+                                                                            obj_text)
+                inpainting_results_list.append(best_sd_inp_result)
+                # lama_inpaint_results_list.append(lama_result)
 
-        return expansion_mask_list,inpainting_results_list,lama_inpaint_results_list
+        return expansion_mask_list,inpainting_results_list
 
     def preprocess_image(self, image,
                          device):
@@ -6540,7 +6740,7 @@ class AutoPipeReggio(StableDiffusionPipeline):
 
     @torch.no_grad()
     def DDIM_inversion_func(self, img, mask, prompt,
-                            num_step, start_step=0, ref_img=None, ):
+                            num_step, start_step=0, ref_img=None, verbose=False):
 
         source_image = self.preprocess_image(img, self.device)
         if ref_img is not None:
@@ -6556,7 +6756,7 @@ class AutoPipeReggio(StableDiffusionPipeline):
                 guidance_scale=1.0,
                 num_inference_steps=num_step,
                 num_actual_inference_steps=num_step - start_step,
-                return_intermediates=True,
+                return_intermediates=True,verbose=verbose
             )
 
         self.controller.reset()  # clear
@@ -6818,7 +7018,7 @@ class AutoPipeReggio(StableDiffusionPipeline):
                                         guidance_scale=3.5, eta=1,
                                         feature_injection=True, FI_range=(900, 680), sim_thr=0.5,
                                         DIFT_LAYER_IDX=[0, 1, 2, 3],
-                                        use_mtsa=True, ref_img=None, ddpm_region=None):
+                                        use_mtsa=True, ref_img=None, ddpm_region=None,verbose=False):
 
         """
         latent vis
@@ -6832,18 +7032,20 @@ class AutoPipeReggio(StableDiffusionPipeline):
         start_latents = inverted_latents[-1]  # [ori,35 steps latents:50->15]
         init_code_orig = deepcopy(start_latents)
         # PREPARE DIFT INJ IDX
-        DIFT_STEP = int(261 / 1000 * num_steps)
-        DIFT_latents = inverted_latents[DIFT_STEP]  # time step 261 , 261/1000 = 13/50
-        t_dift = self.scheduler.timesteps[num_steps - DIFT_STEP - 1]
-        self.prepare_DIFT_INJ_IDX(DIFT_latents, t_dift, DIFT_LAYER_IDX, sim_thr, False, source_image, ref_img,
-                                  8)
+        if feature_injection:
+            DIFT_STEP = int(261 / 1000 * num_steps)
+            DIFT_latents = inverted_latents[DIFT_STEP]  # time step 261 , 261/1000 = 13/50
+            t_dift = self.scheduler.timesteps[num_steps - DIFT_STEP - 1]
+            self.prepare_DIFT_INJ_IDX(DIFT_latents, t_dift, DIFT_LAYER_IDX, sim_thr, False, source_image, ref_img,
+                                      8)
 
         # PREPARE H FEATURE
         # t = self.scheduler.timesteps[start_step]
         # unet_feature_idx = [3]
 
         full_h, full_w = source_image.shape[:2]
-        print(f'full_h:{full_h};full_w:{full_w}')
+        if not verbose:
+            print(f'full_h:{full_h};full_w:{full_w}')
         sup_res_h = int(0.5 * full_h)
         sup_res_w = int(0.5 * full_w)
 
@@ -6883,11 +7085,11 @@ class AutoPipeReggio(StableDiffusionPipeline):
             local_var_reg=local_var_reg,
             feature_injection_allowed=feature_injection,
             feature_injection_timpstep_range=FI_range,
-            use_mtsa=use_mtsa,
+            use_mtsa=use_mtsa,verbose=verbose
         )
         self.controller.reset()
-        refer_gen_image = ref_gen_image.permute(1, 2, 0).detach().cpu().numpy()
-        edit_gen_image = edit_gen_image.permute(1, 2, 0).detach().cpu().numpy()
+        refer_gen_image = ref_gen_image.permute(1, 2, 0).detach().cpu().numpy()*255
+        edit_gen_image = edit_gen_image.permute(1, 2, 0).detach().cpu().numpy()*255
         return edit_gen_image, refer_gen_image
 
     def ReggioRecurrentEdit(self, source_image, inverted_latents, edit_prompt, expand_mask, x_shift, y_shift,

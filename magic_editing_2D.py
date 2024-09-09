@@ -3,7 +3,7 @@ os.environ["CUDA_VISIBLE_DEVICES"]="0"
 # from simple_lama_inpainting import SimpleLama
 from lama import lama_with_refine
 from lora.lora_utils import train_lora_pipe
-from src.demo.model import ClawerModels,ClawerModel_v2
+from src.demo.model import AutoPipeReggio
 from src.unet.unet_2d_condition import DragonUNet2DConditionModel
 import torch
 import cv2
@@ -97,7 +97,7 @@ if train_lora_state:
 # scheduler = DDIMScheduler(beta_start=0.00085, beta_end=0.012, beta_schedule="scaled_linear", clip_sample=False, set_alpha_to_one=False)
 # model = ClawerModels.from_pretrained(pretrained_model_path,scheduler=scheduler).to(device)
 precision=torch.float32
-model = ClawerModel_v2.from_pretrained(pretrained_model_path,torch_dtype=precision).to(device)
+model = AutoPipeReggio.from_pretrained(pretrained_model_path,torch_dtype=precision).to(device)
 
 if vae_path != "default":
     model.vae = AutoencoderKL.from_pretrained(
@@ -192,6 +192,7 @@ model.Details_Preserving_regeneration()
 model.invert()
 model.forward_sampling_BG()
 #TODO:Size 变回原图size 经过一次resize的
+Mask_Expansion_SELF_ATTN()
 Mask_Expansion_SELF_ATTN()
 register_attention_control(model, controller)
 model.modify_unet_forward()

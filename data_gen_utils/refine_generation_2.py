@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
+os.environ["CUDA_VISIBLE_DEVICES"]="2"
 import os.path as osp
 import json
 from tqdm import  tqdm
@@ -209,7 +209,7 @@ model.enable_xformers_memory_efficient_attention()
 dst_dir_path_gen = "/data/Hszhu/dataset/PIE-Bench_v1/Gen_results/"
 #dict(edit_prompt: coarse input ,ori_Img ,ori_mask,target_mask)
 new_data = dict()
-for da_n, da in tqdm(data_parts[0].items(), desc='Proceeding inpainting (Part 0)'):
+for da_n, da in tqdm(data_parts[2].items(), desc='Proceeding inpainting (Part 2)'):
     # if 'instances' not in da.keys():
     #     print(f'skip {da_n} for not valid instance')
     #     continue
@@ -235,7 +235,7 @@ for da_n, da in tqdm(data_parts[0].items(), desc='Proceeding inpainting (Part 0)
     new_data[da_n] = dict()
     new_data[da_n]['instances'] = instances
 
-save_json(new_data,"/data/Hszhu/dataset/PIE-Bench_v1/generated_dataset_full_pack_0.json")
+save_json(new_data,"/data/Hszhu/dataset/PIE-Bench_v1/generated_dataset_full_pack_2.json")
 
 # data= load_json("/data/Hszhu/dataset/PIE-Bench_v1/generated_dataset_full_pack.json")
 # key = data.keys()

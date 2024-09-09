@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
+os.environ["CUDA_VISIBLE_DEVICES"]="1"
 import os.path as osp
 import json
 from tqdm import  tqdm
@@ -243,14 +243,17 @@ def split_data(data, num_splits, subset_num=None,seed=None):
 
 
 
+
+
+
 dataset_json_file = "/data/Hszhu/dataset/PIE-Bench_v1/packed_data_full_tag.json"
 gpu_ids = [0,1,2,3] #100张图 跑一个子集
 data = load_json(dataset_json_file)
-data_parts = split_data(data, 1,subset_num=100,seed=42)
-inp_mode = 'lama_only'  #'sd','lama_sd'
+data_parts = split_data(data, 1, subset_num=100,seed=42)
+inp_mode = 'sd'  #'sd','lama_sd'
 
-dst_dir_path_exp = "/data/Hszhu/dataset/PIE-Bench_v1/Subset_lama/EXP_masks/"
-dst_dir_path_inp = "/data/Hszhu/dataset/PIE-Bench_v1/Subset_lama/inp_imgs/"
+dst_dir_path_exp = "/data/Hszhu/dataset/PIE-Bench_v1/Subset_sd/EXP_masks/"
+dst_dir_path_inp = "/data/Hszhu/dataset/PIE-Bench_v1/Subset_sd/inp_imgs/"
 # dst_dir_path_inp_lama =  "/data/Hszhu/dataset/PIE-Bench_v1/inp_imgs_lama/"
 device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
 pretrained_inpaint_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-inpainting/"
@@ -309,7 +312,7 @@ model.enable_xformers_memory_efficient_attention()
 assist_prompt = ['shadow','light']
 # omit_label_list = ['field','sky']
 # for da_n,da in tqdm(data.items(),desc='proceeding inpainting:'):
-for da_n, da in tqdm(data_parts[0].items(), desc='Proceeding inpainting (data_parts lama)'):
+for da_n, da in tqdm(data_parts[0].items(), desc='Proceeding inpainting (data_parts SD)'):
     # da_n = '3' #378
     # da = data[da_n]
     image_path = da['image_path']
@@ -339,4 +342,4 @@ for da_n, da in tqdm(data_parts[0].items(), desc='Proceeding inpainting (data_pa
         best_inp_path = save_imgs(inpainting_imgs_list, dst_dir_path_inp, da_n)
         instances['inp_img_path'] = best_inp_path
     data[da_n]['instances'] = instances
-save_json(data,"/data/Hszhu/dataset/PIE-Bench_v1/Subset_lama/packed_data_full_EXP_INP.json")
+save_json(data,"/data/Hszhu/dataset/PIE-Bench_v1/Subset_sd/packed_data_full_EXP_INP.json")
