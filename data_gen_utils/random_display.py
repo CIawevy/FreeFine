@@ -31,6 +31,110 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 
 
+
+
+def temp_view(mask, title='Mask', name=None):
+    """
+    显示输入的mask图像
+
+    参数:
+    mask (torch.Tensor): 要显示的mask图像，类型应为torch.bool或torch.float32
+    title (str): 图像标题
+    """
+    # 确保输入的mask是float类型以便于显示
+    if isinstance(mask, np.ndarray):
+        mask_new = mask
+    else:
+        mask_new = mask.float()
+        mask_new = mask_new.detach().cpu()
+        mask_new = mask_new.numpy()
+
+    plt.figure(figsize=(6, 6))
+    plt.imshow(mask_new, cmap='gray')
+    plt.title(title)
+    plt.axis('off')  # 去掉坐标轴
+    # plt.savefig(name+'.png')
+    plt.show()
+import cv2
+def display_all_samples(datadict, save_path=None, title_fontsize=14, subtitle_fontsize=10, wrap_width=30,
+                        specific_key=None,id=None):
+    """
+    展示生成的图片，显示edit_prompt、原图img_id和original mask。
+    """
+    import random
+    import matplotlib.pyplot as plt
+    import matplotlib.image as mpimg
+    import textwrap
+    from concurrent.futures import ThreadPoolExecutor
+
+    # 选择展示的实例
+    img_id = specific_key or random.choice(list(datadict.keys()))
+    instances = datadict[img_id]["instances"]
+    if not instances:
+        print(f'no instance')
+        return
+
+    # 随机选择一个实例
+    if id is None:
+        id = random.choice(list(instances.keys()))
+    instance_data = instances[id]
+    ori_img_path = instance_data[id]["ori_img_path"]
+    ori_mask_path = instance_data[id].get("ori_mask_path")  # 获取 original mask 路径
+    gen_img_data = [(v["gen_img_path"], v["edit_prompt"]) for v in instance_data.values()]
+
+    # 图片展示设置
+    total_samples = len(gen_img_data)
+    total_items = total_samples + 1  # 原图+生成图
+    if ori_mask_path:
+        total_items += 1  # 加上 original mask
+
+    images_per_row = 6
+    rows = (total_items + images_per_row - 1) // images_per_row  # 动态计算行数
+
+    # 使用线程池并行加载图片
+    def load_image(image_path):
+        return mpimg.imread(image_path)
+
+    image_paths = [ori_img_path] + [img_path for img_path, _ in gen_img_data]
+    if ori_mask_path:
+        image_paths.append(ori_mask_path)
+
+    with ThreadPoolExecutor() as executor:
+        images = list(executor.map(load_image, image_paths))
+
+    # 开始绘制图像
+    fig, axs = plt.subplots(rows, images_per_row, figsize=(25, rows * 5))
+    axs = axs.flatten()
+
+    # 显示原图
+    axs[0].imshow(images[0])
+    axs[0].set_title(f'Original Image (ID: {img_id})', fontsize=title_fontsize)
+    axs[0].axis('off')
+
+    # 显示生成图像
+    for i, (img, (img_path, prompt)) in enumerate(zip(images[1:1 + total_samples], gen_img_data)):
+        axs[i + 1].imshow(img)
+        axs[i + 1].set_title("\n".join(textwrap.wrap(prompt, wrap_width)), fontsize=subtitle_fontsize)
+        axs[i + 1].axis('off')
+
+    # 显示 original mask，如果有的话
+    if ori_mask_path:
+        axs[total_samples + 1].imshow(images[-1])  # Mask 是最后一张图
+        axs[total_samples + 1].set_title("Original Mask", fontsize=title_fontsize)
+        axs[total_samples + 1].axis('off')
+
+    # 隐藏多余的子图
+    for j in range(total_items, len(axs)):
+        axs[j].axis('off')
+
+    # 布局调整与保存
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, bbox_inches='tight')
+    plt.show()
+    plt.close()
+
+
 def random_display_with_prompts(datadict, num_samples=5, save_path=None, title_fontsize=12, subtitle_fontsize=10,
                                 wrap_width=30):
     """
@@ -91,11 +195,21 @@ def random_display_with_prompts(datadict, num_samples=5, save_path=None, title_f
 
     # 展示结果
     plt.show()
+import os.path as osp
+#ablation study on unseen generation
+# base_path = "/data/Hszhu/dataset/PIE-Bench_v1/Gen_results/"
+# base_path = "/data/Hszhu/dataset/PIE-Bench_v1/Gen_results_local_ddpm/"
+# base_path = "/data/Hszhu/dataset/PIE-Bench_v1/Gen_results_local_text_only/"
+# base_path = "/data/Hszhu/dataset/PIE-Bench_v1/Gen_results_mtsa_only/"
 
-
+# base_path = "/data/Hszhu/dataset/PIE-Bench_v1/Subset_lama_sd"
+base_path = "/data/Hszhu/dataset/exp/"
 # 加载数据
-data = load_json("/data/Hszhu/dataset/PIE-Bench_v1/generated_dataset_full_pack.json")
-
+data = load_json(osp.join(base_path,'generated_dataset_full_pack_exp.json'))
+# data = load_json(osp.join(base_path,'generated_dataset_full_pack_unseen.json'))
+# keys=['114', '654', '250', '692', '142', '228', '104', '25', '281', '754']
 # 如果数据成功加载，调用随机展示函数
-
-random_display_with_prompts(data, num_samples=5, save_path="/data/Hszhu/dataset/demo/random_sample_output.png", title_fontsize=14, subtitle_fontsize=10, wrap_width=30)
+keys_list = list(data.keys())
+print(keys_list)
+# random_display_with_prompts(data, num_samples=5, save_path="/data/Hszhu/dataset/PIE-Bench_v1/Subset_lama/random_sample_output.png", title_fontsize=14, subtitle_fontsize=10, wrap_width=30)
+display_all_samples(data,specific_key='0',id='1', save_path=osp.join(base_path,"random_sample_output.png"))

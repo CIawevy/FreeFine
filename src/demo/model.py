@@ -5327,13 +5327,13 @@ class AutoPipeReggio(StableDiffusionPipeline):
             blending=True,
             feature_injection_allowed=True,
             feature_injection_timpstep_range=(900, 600),
-            use_mtsa=True,verbose=False,
+            use_mtsa=True,verbose=False,local_ddpm=True,
             **kwds):
         DEVICE = self.device
         assert guidance_scale > 1.0, 'USING THIS MODULE CFG Must > 1.0'
         self.controller.use_cfg = True
-        self.controller.share_attn = use_mtsa  # allow SDSA
-        self.controller.local_edit = True
+        self.controller.share_attn = use_mtsa  # allow MTSA
+        self.controller.local_edit = blending    #allow local cfg
         if prompt_embeds is None:
             if isinstance(prompt, list):
                 batch_size = len(prompt)
@@ -5440,15 +5440,20 @@ class AutoPipeReggio(StableDiffusionPipeline):
                     if not blending:
                         noise_pred = noise_pred_uncon + guidance_scale * (noise_pred_con - noise_pred_uncon)
                     else:
-                        local_text_guidance = guidance_scale * (noise_pred_con - noise_pred_uncon) * obj_mask
+                        #modified
+                        # local_text_guidance = guidance_scale * (noise_pred_con - noise_pred_uncon) * obj_mask
+                        local_text_guidance = guidance_scale * (noise_pred_con - noise_pred_uncon) * foreground_mask
                         noise_pred = noise_pred_uncon + local_text_guidance
                     # compute the previous noise sample x_t -> x_t-1
                     # YUJUN: right now, the only difference between step here and step in scheduler
                     # is that scheduler version would clamp pred_x0 between [-1,1]
                     # don't know if that's gonna have huge impact
                     # latents = self.scheduler.step(noise_pred, t, latents, return_dict=False, eta=eta)[0]
-                    # full_mask = torch.ones_like(obj_mask)
-                    latents = self.ctrl_step(noise_pred, t, latents, local_var_reg, eta=eta)[0]
+                    full_mask = torch.ones_like(obj_mask)
+                    if not local_ddpm:
+                        latents = self.ctrl_step(noise_pred, t, latents, full_mask, eta=eta)[0]
+                    else:
+                        latents = self.ctrl_step(noise_pred, t, latents, local_var_reg, eta=eta)[0]
                     latents_list.append(latents)
             image = self.latent2image(latents, return_type="pt")
             if return_intermediates:
@@ -5507,7 +5512,9 @@ class AutoPipeReggio(StableDiffusionPipeline):
                     if not blending:
                         noise_pred = noise_pred_uncon + guidance_scale * (noise_pred_con - noise_pred_uncon)
                     else:
-                        local_text_guidance = guidance_scale * (noise_pred_con - noise_pred_uncon) * obj_mask
+                        # modified
+                        # local_text_guidance = guidance_scale * (noise_pred_con - noise_pred_uncon) * obj_mask
+                        local_text_guidance = guidance_scale * (noise_pred_con - noise_pred_uncon) * foreground_mask
                         noise_pred = noise_pred_uncon + local_text_guidance
                     # compute the previous noise sample x_t -> x_t-1
                     # YUJUN: right now, the only difference between step here and step in scheduler
@@ -5999,14 +6006,13 @@ class AutoPipeReggio(StableDiffusionPipeline):
         if mask.ndim==3:
             mask = mask[:,:,0]
         return mask
-    def generated_refine_results(self, ori_img, ori_mask, coarse_input, target_mask, ddpm_region_mask, guidance_text,
+    def generated_refine_results(self, ori_img, ori_mask, coarse_input, target_mask,constrain_area,guidance_text,
                                  guidance_scale, eta, contrast_beta=1.67, end_step=10, num_step=50, start_step=25,
                                  feature_injection=True, FI_range=(900, 680), sim_thr=0.5, DIFT_LAYER_IDX=[0, 1, 2, 3],
-                                 use_mtsa=True, ):
-        verbose=True
+                                 use_mtsa=True,local_text_edit=True,local_ddpm=True, verbose=True , obj_label=None):
         ori_mask = self.mask_reduce_dim(ori_mask)
         target_mask = self.mask_reduce_dim(target_mask)
-        ddpm_region_mask = self.mask_reduce_dim(ddpm_region_mask)
+        # ddpm_region_mask = self.mask_reduce_dim(ddpm_region_mask)
         self.controller.contrast_beta = contrast_beta
         # DDIM INVERSION
         shifted_mask, inverted_latent = self.DDIM_inversion_func(img=coarse_input, mask=target_mask,
@@ -6026,8 +6032,18 @@ class AutoPipeReggio(StableDiffusionPipeline):
                                                                                 FI_range=FI_range, sim_thr=sim_thr,
                                                                                 DIFT_LAYER_IDX=DIFT_LAYER_IDX,
                                                                                 use_mtsa=use_mtsa, ref_img=ori_img,
-                                                                                ddpm_region=ddpm_region_mask,verbose=verbose)
-        return edit_gen_image
+                                                                                verbose=verbose,
+                                                                                local_text_edit=local_text_edit,local_ddpm=local_ddpm,cons_area= constrain_area)
+        assist_prompt = [obj_label]
+        expansion_step = 10
+        self.controller.contrast_beta = contrast_beta  # numpy input
+
+        expand_target_mask = self.Prompt_guided_mask_expansion_func(img=edit_gen_image, mask=target_mask,
+                                                             expand_forbit_region=constrain_area,
+                                                             assist_prompt=assist_prompt,
+                                                             num_step=expansion_step, start_step=1,sem_expansion=False,init_enhance=False,)
+        expand_target_mask[expand_target_mask>0] = 1
+        return edit_gen_image,expand_target_mask
     def Magic_Editing_Baseline_SV3D(self, original_image, transformed_image, prompt, INP_prompt,
                                     seed, guidance_scale, num_step, max_resolution, mode, dilate_kernel_size,
                                     start_step,
@@ -6430,7 +6446,7 @@ class AutoPipeReggio(StableDiffusionPipeline):
         ori_image_back_ground = np.where(exp_mask[:, :, None], 0, ori_img)
         image_with_hole = ori_image_back_ground
 
-        if 'lama' not in mode: #lama_only lama_sd sd
+        if 'lama' in mode: #lama_only lama_sd sd
             coarse_repaired = inpainter(ori_image_back_ground, exp_mask.astype(np.uint8) * 255,)#lama
         else:
             coarse_repaired = ori_img # no black filled
@@ -6464,7 +6480,11 @@ class AutoPipeReggio(StableDiffusionPipeline):
 
     def expansion_and_inpainting_func(self, img, mask_pools,label_list,max_resolution=768,
                                   seed=42,expansion_step=4, contrast_beta=1.67,max_try_times=10,samples_per_time=10,
-                                  assist_prompt="",mode='lama_only'):
+                                  assist_prompt="",mode='lama_only',sem_expansion=False):
+        """
+        semantic expansion and sd inpainting
+
+        """
         assert mode in ['lama_only','sd','lama_sd']
         # seed_everything(seed)
         np.random.seed(int(time.time()))
@@ -6500,7 +6520,7 @@ class AutoPipeReggio(StableDiffusionPipeline):
             print(f'idx:{idx} | proceeding mask expansion:')
             expand_mask = self.Prompt_guided_mask_expansion_func(img=img, mask=mask,expand_forbit_region = expand_forbid_regions,
                                                                  assist_prompt=assist_prompt,
-                                                                 num_step=expansion_step, start_step=1, )
+                                                                 num_step=expansion_step, start_step=1,sem_expansion=sem_expansion,init_enhance=True)
             expansion_mask_list.append(expand_mask)
             INP_prompt = 'a photo of a background, a photo of an empty place'
             INP_prompt_negative = f'object,{obj_text},shadow,text'
@@ -6528,6 +6548,49 @@ class AutoPipeReggio(StableDiffusionPipeline):
                 # lama_inpaint_results_list.append(lama_result)
 
         return expansion_mask_list,inpainting_results_list
+    def mask_completion(self, img, mask_pools,label_list,max_resolution=768,
+                                  seed=42,expansion_step=4, contrast_beta=1.67,max_try_times=10,samples_per_time=10,
+                                  assist_prompt="",mode='lama_only'):
+        assert mode in ['lama_only','sd','lama_sd']
+        # seed_everything(seed)
+        np.random.seed(int(time.time()))
+        random_seed = np.random.randint(0, 2 ** 32 - 1)
+        my_seed_everything(random_seed)
+        expansion_mask_list = []
+        inpainting_results_list = []
+        # lama_inpaint_results_list = []
+        if isinstance(assist_prompt, str):
+            assist_prompt = [item.strip() for item in assist_prompt.split(',')]
+        #resize to avoid memory promblem in expansion process
+        img, in_w = self.get_mask_from_rembg(img, size=[max_resolution, max_resolution], need_mask=False)
+        w, h = img.shape[:2]
+        expand_forbid_regions = np.zeros_like(mask_pools[0]).astype(np.uint8)
+        for i in range(len(mask_pools)):
+            msk = mask_pools[i].astype(np.uint8)
+            msk[msk>0]=1
+            expand_forbid_regions += msk
+        expand_forbid_regions[expand_forbid_regions>0]=1
+
+        for idx,select_mask in enumerate(mask_pools):
+            obj_text = label_list[idx]
+            assist_prompt = [obj_text]
+            mask = cv2.resize(select_mask, (h, w))
+            if idx==0:
+                expand_forbid_regions = cv2.resize(expand_forbid_regions, (h, w))
+                if mask.ndim == 3:
+                    mask = mask[:, :, 0]
+                    expand_forbid_regions = expand_forbid_regions[:,:,0]
+            elif mask.ndim == 3:
+                mask = mask[:, :, 0]
+
+            self.controller.contrast_beta = contrast_beta  # numpy input
+            print(f'idx:{idx} | proceeding mask expansion:')
+            expand_mask = self.Prompt_guided_mask_expansion_func(img=img, mask=mask,expand_forbit_region = expand_forbid_regions,
+                                                                 assist_prompt=assist_prompt,
+                                                                 num_step=expansion_step, start_step=1,sem_expansion=False,init_enhance=False)
+            expansion_mask_list.append(expand_mask)
+
+        return expansion_mask_list
 
     def preprocess_image(self, image,
                          device):
@@ -6709,22 +6772,29 @@ class AutoPipeReggio(StableDiffusionPipeline):
     @torch.no_grad()
     def Prompt_guided_mask_expansion_func(self, img, mask, assist_prompt,expand_forbit_region,
                                           num_step, start_step=0,
-                                          use_mask_expansion=True,
+                                          use_mask_expansion=True,sem_expansion=False,init_enhance=True,
                                           ):
         source_image = self.preprocess_image(img, self.device)
         # reference mask prepare
-        x, y, w, h = cv2.boundingRect(self.dilate_mask(mask, 30))
-        local_focus = np.zeros_like(mask)
-        local_focus[y: y + h, x: x + w] = 255
+
+        # x, y, w, h = cv2.boundingRect(self.dilate_mask(mask, 30))
+        # local_focus = np.zeros_like(mask)
+        # local_focus[y: y + h, x: x + w] = 255
         mask = self.prepare_controller_ref_mask(mask, use_mask_expansion)
-        local_focus = self.prepare_controller_ref_mask(local_focus, False)
+        local_focus = self.prepare_local_region(mask, self.prepare_controller_ref_mask(expand_forbit_region, False))
+        # local_focus = self.prepare_controller_ref_mask(local_focus, False)
         forbit_exp = self.prepare_controller_ref_mask(expand_forbit_region,False)
-        forbit_exp = torch.where(mask.bool(),0,forbit_exp)
+        if not sem_expansion:
+            forbit_exp = torch.where(mask.bool(),0,forbit_exp)
+        else:#sem expansion should focus rather than self regions
+            forbit_exp = forbit_exp
         self.controller.local_focus_box = local_focus
         self.controller.forbit_expand_area = forbit_exp
         if len(assist_prompt) == 1 and assist_prompt[0] == "":
             assist_prompt = None
         self.controller.assist_len = len(assist_prompt)
+        if init_enhance:
+            self.controller.is_locating = True
         # ddim inv
         latents = self.Expansion_invert(
             source_image,
@@ -6734,16 +6804,27 @@ class AutoPipeReggio(StableDiffusionPipeline):
         )
         del latents
         self.controller.reset()  # reset for next image
+
         candidate_mask = self.controller.obj_mask.detach().cpu().numpy()
         candidate_mask = self.erode_mask(candidate_mask, 15)
         return candidate_mask
 
+    def resize_img(self,trans_img, size=None, ):
+        if isinstance(trans_img, np.ndarray):
+            trans_img = cv2.cvtColor(trans_img, cv2.COLOR_RGB2BGR)
+            trans_img = Image.fromarray(trans_img)  # PIL img
+        assert size is not None, "for resize pipe,size should be given"
+        trans_img.thumbnail(size, Image.Resampling.LANCZOS)
+        return_img = np.array(trans_img.copy())
+        return_img = cv2.cvtColor(return_img, cv2.COLOR_BGR2RGB)
+        return return_img
     @torch.no_grad()
     def DDIM_inversion_func(self, img, mask, prompt,
                             num_step, start_step=0, ref_img=None, verbose=False):
 
         source_image = self.preprocess_image(img, self.device)
         if ref_img is not None:
+            ref_img = self.resize_img(ref_img, size=[512, 512])
             ref_image = self.preprocess_image(ref_img, self.device)
             source_image = torch.cat((source_image, ref_image))
         # reference mask prepare
@@ -6979,26 +7060,108 @@ class AutoPipeReggio(StableDiffusionPipeline):
 
         return h_feature
 
+
+
+    def prepare_local_region(self, shifted_mask, cons_area):
+        shifted_mask[shifted_mask>0] = 1
+        cons_area[cons_area>0] = 1
+        feasible_regions = 1 - cons_area
+        # 确保输入是二值化的 Tensor（0 和 1）
+        shifted_mask[shifted_mask>0] = 1
+
+        # 1. 获取掩码的边界框 (bounding box)
+        mask_indices = torch.nonzero(shifted_mask)
+        if mask_indices.numel() == 0:
+            return torch.zeros_like(shifted_mask)  # 如果没有找到非零值，返回全零掩码
+
+        y_min, x_min = mask_indices.min(dim=0)[0]
+        y_max, x_max = mask_indices.max(dim=0)[0]
+
+        # 宽度和高度
+        w = x_max - x_min
+        h = y_max - y_min
+
+        # 2. 上下左右移动 50% 的宽度和高度 (四个角)
+        jitter_x = int(0.1 * w)
+        jitter_y = int(0.1 * h)
+
+        # 随机移动左上角和右下角
+        new_x_min = max(0, x_min - jitter_x)
+        new_y_min = max(0, y_min - jitter_y)
+        new_x_max = min(x_max + jitter_x, shifted_mask.shape[1] - 1)
+        new_y_max = min(y_max + jitter_y, shifted_mask.shape[0] - 1)
+
+        # 3. 生成新的编辑区域 (覆盖 jitter 后的范围)
+        local_edit_region = torch.zeros_like(shifted_mask)
+        local_edit_region[new_y_min:new_y_max + 1, new_x_min:new_x_max + 1] = 1
+
+        # 4. 与 feasible_domains 做与运算，确保区域在可行范围内
+        final_mask = local_edit_region * feasible_regions
+
+        return final_mask
+    def prepare_surrounding_mask(self, shifted_mask, cons_area,rate=0.5):
+        feasible_regions = 1 - cons_area
+        # 确保输入是二值化的 Tensor（0 和 1）
+        shifted_mask[shifted_mask>0] = 1
+
+        # 1. 获取掩码的边界框 (bounding box)
+        mask_indices = torch.nonzero(shifted_mask)
+        if mask_indices.numel() == 0:
+            return torch.zeros_like(shifted_mask)  # 如果没有找到非零值，返回全零掩码
+
+        y_min, x_min = mask_indices.min(dim=0)[0]
+        y_max, x_max = mask_indices.max(dim=0)[0]
+
+        # 宽度和高度
+        w = x_max - x_min
+        h = y_max - y_min
+
+        # 2. 上下左右移动 50% 的宽度和高度 (四个角)
+        jitter_x = int(rate * w)
+        jitter_y = int(rate * h)
+
+        # 随机移动左上角和右下角
+        new_x_min = max(0, x_min - jitter_x)
+        new_y_min = max(0, y_min - jitter_y)
+        new_x_max = min(x_max + jitter_x, shifted_mask.shape[1] - 1)
+        new_y_max = min(y_max + jitter_y, shifted_mask.shape[0] - 1)
+
+        # 3. 生成新的编辑区域 (覆盖 jitter 后的范围)
+        local_edit_region = torch.zeros_like(shifted_mask)
+        local_edit_region[new_y_min:new_y_max + 1, new_x_min:new_x_max + 1] = 1
+
+        # 4. 与 feasible_domains 做与运算，确保区域在可行范围内
+        final_mask = local_edit_region * feasible_regions * (1-shifted_mask)
+
+        return final_mask
+
     @torch.no_grad()
-    def prepare_various_mask(self, shifted_mask, ori_mask, sup_res_w, sup_res_h, init_code, ddpm_region):
-        shifted_mask_tensor_dilated = self.prepare_tensor_mask(self.dilate_mask(ddpm_region, 15), sup_res_w,
-                                                               sup_res_h)
+    def prepare_various_mask(self, shifted_mask, ori_mask, sup_res_w, sup_res_h, init_code, cons_area):
         shifted_mask_tensor = self.prepare_tensor_mask(shifted_mask, sup_res_w, sup_res_h)
         ori_mask_tensor = self.prepare_tensor_mask(ori_mask, sup_res_w, sup_res_h)
-        foreground_latent_region = shifted_mask_tensor_dilated + ori_mask_tensor
-        foreground_latent_region[foreground_latent_region > 0.0] = 1
-        local_variance_reg = (1 - shifted_mask_tensor) * shifted_mask_tensor_dilated
+        cons_area_tensor = self.prepare_tensor_mask(cons_area,sup_res_w,sup_res_h)
+
         shifted_mask_tensor[shifted_mask_tensor > 0.0] = 1
-        latent_foreground_masks = F.interpolate(foreground_latent_region.unsqueeze(0).unsqueeze(0),
-                                                (init_code.shape[2], init_code.shape[3]),
-                                                mode='nearest').squeeze(0, 1)
-        obj_dilation_mask = F.interpolate(shifted_mask_tensor.unsqueeze(0).unsqueeze(0),
+        ori_mask_tensor[ori_mask_tensor > 0.0] = 1
+        cons_area_tensor[cons_area_tensor > 0.0] = 1
+        cons_area_tensor = cons_area_tensor - ori_mask_tensor
+
+        local_edit_background = self.prepare_surrounding_mask(shifted_mask_tensor, cons_area_tensor,rate=0.1)
+
+
+        local_edit_background[local_edit_background > 0.0] = 1
+
+        local_edit_foreground = F.interpolate( shifted_mask_tensor.unsqueeze(0).unsqueeze(0),
+                                  (shifted_mask.shape[0], shifted_mask.shape[1]),
+                                           mode='nearest').squeeze(0, 1)
+        shifted_mask_tensor = F.interpolate(shifted_mask_tensor.unsqueeze(0).unsqueeze(0),
                                           (init_code.shape[2], init_code.shape[3]),
                                           mode='nearest').squeeze(0, 1)
-        local_variance_reg = F.interpolate(local_variance_reg.unsqueeze(0).unsqueeze(0),
+        local_edit_background = F.interpolate(local_edit_background.unsqueeze(0).unsqueeze(0),
                                            (init_code.shape[2], init_code.shape[3]),
                                            mode='nearest').squeeze(0, 1)
-        return latent_foreground_masks, obj_dilation_mask, local_variance_reg
+
+        return local_edit_foreground, shifted_mask_tensor, local_edit_background
 
     def prepare_tensor_mask(self, mask, sup_res_w, sup_res_h):
         # mask interpolation
@@ -7018,7 +7181,8 @@ class AutoPipeReggio(StableDiffusionPipeline):
                                         guidance_scale=3.5, eta=1,
                                         feature_injection=True, FI_range=(900, 680), sim_thr=0.5,
                                         DIFT_LAYER_IDX=[0, 1, 2, 3],
-                                        use_mtsa=True, ref_img=None, ddpm_region=None,verbose=False):
+                                        use_mtsa=True, ref_img=None, ddpm_region=None,verbose=False,
+                                        local_text_edit=True, local_ddpm=True,cons_area = None):
 
         """
         latent vis
@@ -7032,7 +7196,7 @@ class AutoPipeReggio(StableDiffusionPipeline):
         start_latents = inverted_latents[-1]  # [ori,35 steps latents:50->15]
         init_code_orig = deepcopy(start_latents)
         # PREPARE DIFT INJ IDX
-        if feature_injection:
+        if feature_injection: #FOR START STEP > 15 THIS FUNC IS FORBIDDEN
             DIFT_STEP = int(261 / 1000 * num_steps)
             DIFT_latents = inverted_latents[DIFT_STEP]  # time step 261 , 261/1000 = 13/50
             t_dift = self.scheduler.timesteps[num_steps - DIFT_STEP - 1]
@@ -7051,13 +7215,14 @@ class AutoPipeReggio(StableDiffusionPipeline):
 
         foreground_mask, object_mask, local_var_reg = self.prepare_various_mask(shifted_mask, ori_mask,
                                                                                 sup_res_w, sup_res_h,
-                                                                                init_code_orig, ddpm_region)
+                                                                                init_code_orig,cons_area)
         # object_mask = self.dilate_mask(object_mask,15)
         # h_feature = self.prepare_h_feature(init_code_orig,t,edit_prompt,BG_preservation=False,foreground_mask=foreground_mask,lr=0.1,lam=0.1,eta=1.0)
 
         # noised_optimized_image = self.decode_latents(init_code_orig).squeeze(0)
         # noised_optimized_image = self.numpy_to_pil(noised_optimized_image)[0]
-
+        #exp
+        # foreground_mask = EXP_SHIT
         mask = self.prepare_controller_ref_mask(shifted_mask, True)
         SDSA_REF_MASK = self.prepare_controller_ref_mask(ori_mask, False)
         SDSA_REF_MASK = F.interpolate(SDSA_REF_MASK.unsqueeze(0).unsqueeze(0),
@@ -7065,6 +7230,10 @@ class AutoPipeReggio(StableDiffusionPipeline):
                                       mode='nearest').squeeze(0, 1)
 
         self.controller.SDSA_REF_MASK = SDSA_REF_MASK
+        self.controller.local_edit_region = foreground_mask #text refine
+        foreground_mask = F.interpolate(foreground_mask.unsqueeze(0).unsqueeze(0),
+                                        (init_code_orig.shape[2], init_code_orig.shape[3]),
+                                                mode='nearest').squeeze(0, 1)
         self.controller.reset()
         # refer_gen_image = edit_ori_image[0] #vis ddim results
         self.controller.log_mask = False
@@ -7085,7 +7254,7 @@ class AutoPipeReggio(StableDiffusionPipeline):
             local_var_reg=local_var_reg,
             feature_injection_allowed=feature_injection,
             feature_injection_timpstep_range=FI_range,
-            use_mtsa=use_mtsa,verbose=verbose
+            use_mtsa=use_mtsa,verbose=verbose,blending=local_text_edit,local_ddpm=local_ddpm,
         )
         self.controller.reset()
         refer_gen_image = ref_gen_image.permute(1, 2, 0).detach().cpu().numpy()*255

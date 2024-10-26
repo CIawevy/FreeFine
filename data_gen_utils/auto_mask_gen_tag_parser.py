@@ -4,11 +4,14 @@ import supervision as sv
 from typing import List
 from PIL import Image
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="1"
+# os.environ["CUDA_VISIBLE_DEVICES"]="0"
 import os.path as osp
 import torch
 import spacy
 import sys
+
+
+
 sys.path.append('/data/Hszhu/Reggio')
 from torchvision.transforms import ToTensor
 from groundingdino.util.inference import Model
@@ -17,6 +20,7 @@ from sam.efficient_sam import build_efficient_sam_vits
 from data_gen_utils.blip2 import  BLIP2
 import nltk
 import clip
+import argparse
 # import litellm
 nltk.data.path.append("/data/Hszhu/prompt-to-prompt/nltk/")
 # nltk.download('punkt', download_dir="/data/Hszhu/prompt-to-prompt/nltk/")
@@ -321,7 +325,7 @@ def edge_objects_filter(mask, edge_thr=0.50):
     y_overlap_img = max(edge_y_count_left, edge_y_count_right) /img_height if y_overlap_stat else 0
     x_overlap_img =max(edge_x_count_top, edge_x_count_bottom)/ img_width if x_overlap_stat else 0
     # final_stat = (x_overlap_img > edge_thr) or (y_overlap_img > edge_thr) or (y_overlap_box > edge_thr)
-    final_stat = (x_overlap_img > edge_thr) or  (y_overlap_box > edge_thr)
+    final_stat = (x_overlap_img > edge_thr) or  (y_overlap_img > edge_thr)
     # 如果任一方向的重合与自身该边长比例超过阈值，则认为该物体是贴边物体,贴边程度与背景比大者直接去除,y轴大部分贴边物体不利于编辑也去除
     return final_stat
 def tiny_filter(mask,tiny_thr):
@@ -329,7 +333,7 @@ def tiny_filter(mask,tiny_thr):
     image_size = img_width*img_height
     area_ratio = mask.sum() / image_size
     return area_ratio < tiny_thr
-def Clawer_masks_post_filter(model, img, detections, AUTOMATIC_CLASSES, subordinate_thr=0.8, edge_thr=0.5, tiny_thr=0.05):
+def Clawer_masks_post_filter(model, img, detections, AUTOMATIC_CLASSES,mask, subordinate_thr=0.8, edge_thr=0.5, tiny_thr=0.05):
     xyxy = detections.xyxy
     class_id = detections.class_id
     masks = detections.mask.astype(np.uint8)
@@ -542,6 +546,7 @@ def temp_view_img(image: Image.Image, title: str = None) -> None:
         plt.title(title)
     plt.axis('off')  # Hide the axis
     plt.show()
+
 def save_json(data_dict, file_path):
     """
     将字典保存为 JSON 文件
@@ -574,65 +579,29 @@ def read_img(image_path):
     img = cv2.imread(image_path)  # bgr
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     return img
-#MAIN Process
-ckpt_base_dir = "/data/Hszhu/prompt-to-prompt/GroundingSAM_ckpts"
-#load models
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+import random
+def split_data(data, num_splits, subset_num=None,seed=None):
+    if seed is not None:
+        random.seed(seed)
+    data_keys = list(data.keys())
 
-GROUNDING_DINO_CONFIG_PATH = "./GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py"
-GROUNDING_DINO_CHECKPOINT_PATH = osp.join(ckpt_base_dir,"groundingdino_swint_ogc.pth")
+    # 如果需要从数据中随机抽取100个
+    if subset_num is not None:
+        data_keys = random.sample(data_keys, subset_num)  # 随机抽取subset_num个键
+    # else:
+    #     random.shuffle(data_keys)  # 随机打乱数据键
 
-# SAM_ENCODER_VERSION = "vit_h"
-# SAM_CHECKPOINT_PATH = osp.join(ckpt_base_dir,"sam_vit_h_4b8939.pth")
+    chunk_size = len(data_keys) // num_splits
+    data_parts = []
 
-TAG2TEXT_CHECKPOINT_PATH = osp.join(ckpt_base_dir,"tag2text_swin_14m.pth")
-RAM_CHECKPOINT_PATH = osp.join(ckpt_base_dir,"ram_swin_large_14m.pth")
+    for i in range(num_splits):
+        start_idx = i * chunk_size
+        end_idx = (i + 1) * chunk_size if i != num_splits - 1 else len(data_keys)
+        data_part = {k: data[k] for k in data_keys[start_idx:end_idx]}
+        data_parts.append(data_part)
 
-TAG2TEXT_THRESHOLD = 0.64
-BOX_THRESHOLD = 0.3
-TEXT_THRESHOLD = 0.3
-IOU_THRESHOLD = 0.7
+    return data_parts
 
-# Building GroundingDINO inference model
-grounding_dino_model = Model(model_config_path=GROUNDING_DINO_CONFIG_PATH, model_checkpoint_path=GROUNDING_DINO_CHECKPOINT_PATH)
-grounding_dino_model = load_clip_on_the_main_Model(grounding_dino_model ,DEVICE)#load GS with CLIP
-
-# Building SAM Model and SAM Predictor
-# sam = sam_model_registry[SAM_ENCODER_VERSION](checkpoint=SAM_CHECKPOINT_PATH)
-# sam_predictor = SamPredictor(sam)#TODO:CHECK 182 102 64 1 3 5 0 377 378
-efficientsam = build_efficient_sam_vits().to(DEVICE)
-
-# Tag2Text
-# initialize Tag2Text
-normalize = TS.Normalize(
-    mean=[0.485, 0.456, 0.406],
-    std=[0.229, 0.224, 0.225]
-)
-transform = TS.Compose(
-    [
-        TS.Resize((384, 384)),
-        TS.ToTensor(),
-        normalize
-    ]
-)
-# 加载Spacy的语言模型
-# nlp = spacy.load('en_core_web_sm')
-# IGNORE_LIST = []
-DELETE_TAG_INDEX = []  # filter out attributes and action which are difficult to be grounded
-for idx in range(3012, 3429):
-    DELETE_TAG_INDEX.append(idx)
-
-#tag2text
-tag2text_model = tag2text(pretrained=TAG2TEXT_CHECKPOINT_PATH,
-                          image_size=384,
-                          vit='swin_b',
-                          delete_tag_index=DELETE_TAG_INDEX,
-                          text_encoder_type='/data/Hszhu/prompt-to-prompt/bert-base-uncased')
-# threshold for tagging
-# we reduce the threshold to obtain more tags
-tag2text_model.threshold = TAG2TEXT_THRESHOLD
-tag2text_model.eval()
-tag2text_model = tag2text_model.to(DEVICE)
 #BLIP
 # blip2 = BLIP2("/data/Hszhu/prompt-to-prompt/blip2-opt-2.7b/")
 #RAM
@@ -642,174 +611,209 @@ tag2text_model = tag2text_model.to(DEVICE)
 #                                         text_encoder_type='/data/Hszhu/prompt-to-prompt/bert-base-uncased')
 # ram_model.eval()
 # ram_model = ram_model.to(DEVICE)
-omit_list=['photo','eye']
-dataset_json_file = "/data/Hszhu/dataset/PIE-Bench_v1/packed_data.json"
-data = load_json(dataset_json_file)
-dst_dir_path = "/data/Hszhu/dataset/PIE-Bench_v1/masks_tag/"
-for da_n,da in tqdm(data.items(),desc='procedding GroundingSAM:'):
-    # da_n = '377'#182 102 64 1 3 5 0 377 378 8
-    # da = data[da_n]
-    # Hyper-Params
-    SOURCE_IMAGE_PATH = da['image_path']
-    # load image
-    try:
-        image = cv2.imread(SOURCE_IMAGE_PATH)  # bgr
-        image_pillow = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))  # rgb
-    except:
-        print('why is that?')
-        break
-    image_pillow = image_pillow.resize((384, 384))
-    image_pillow = transform(image_pillow).unsqueeze(0).to(DEVICE)
-    #Tag2Text
-    specified_tags='None'
-    res_tag2text = inference_tag2text(image_pillow , tag2text_model, specified_tags)
-    AUTOMATIC_CLASSES=res_tag2text[0].split(" | ")
-    text_prompt = res_tag2text[0].replace(' |', ',')
-    caption = res_tag2text[2]
-
-    #RAM #TODO:CHECK 182 102 64 1 3 5 0 377 378
-    # res = inference_ram(image_pillow , ram_model)
-    # AUTOMATIC_CLASSES_RAM = res[0].split(" | ")
-    # AUTOMATIC_CLASSES = list(set(AUTOMATIC_CLASSES+AUTOMATIC_CLASSES_RAM))
-    AUTOMATIC_CLASSES = [a for a in AUTOMATIC_CLASSES if a not in omit_list]
-
-    #BLIP2
-    # caption =blip2(SOURCE_IMAGE_PATH)
-    # text_prompt = generate_tags(caption, split=",")
-    # AUTOMATIC_CLASSES=text_prompt.split(",")
-
-    # Currently ", " is better for detecting single tags
-    # while ". " is a little worse in some case
-    # AUTOMATIC_CLASSES=res[0].split(" | ")
-    # AUTOMATIC_CLASSES=filter_words(nlp, AUTOMATIC_CLASSES,IGNORE_LIST)
-    # print(f"Tags: {res[0].replace(' |', ',')}")
+import argparse
+import os
+import os.path as osp
+import cv2
+import torch
+import torchvision
+from PIL import Image
+from tqdm import tqdm
+import numpy as np
 
 
-    # detect objects
-    detections = grounding_dino_model.predict_with_classes(
-        image=image,
-        classes=AUTOMATIC_CLASSES,
-        box_threshold=BOX_THRESHOLD,
-        text_threshold=BOX_THRESHOLD
-    )
 
-    # NMS post process
-    # print(f"Before NMS: {len(detections.xyxy)} boxes")
-    nms_idx = torchvision.ops.nms(
-        torch.from_numpy(detections.xyxy),
-        torch.from_numpy(detections.confidence),
-        IOU_THRESHOLD
-    ).numpy().tolist()
-
-    detections.xyxy = detections.xyxy[nms_idx]
-    detections.confidence = detections.confidence[nms_idx]
-    detections.class_id = detections.class_id[nms_idx]
-
-    # print(f"After NMS: {len(detections.xyxy)} boxes")
-
-    # annotate image with detections
-    box_annotator = sv.BoxAnnotator()
-    labels = [
-        f"{AUTOMATIC_CLASSES[class_id]} {confidence:0.2f}"
-        for _, _, confidence, class_id, _, _
-        in detections]
-    annotated_frame = box_annotator.annotate(scene=image.copy(), detections=detections, labels=labels)
-
-    # save the annotated grounding dino image
-    # visualize_rgb_image(Image.fromarray(annotated_frame))
-    # cv2.imwrite("groundingdino_auto_annotated_image.jpg", annotated_frame)
-    # start_time = time.time()
-    """Original SAM segment code
-    # Prompting SAM with detected boxes
-    # def segment(sam_predictor: SamPredictor, image: np.ndarray, xyxy: np.ndarray) -> np.ndarray:
-    #     sam_predictor.set_image(image)
-    #     result_masks = []
-    #     for box in xyxy:
-    #         masks, scores, logits = sam_predictor.predict(
-    #             box=box,
-    #             multimask_output=True
-    #         )
-    #         index = np.argmax(scores)
-    #         result_masks.append(masks[index])
-    #     return np.array(result_masks)
-
-    #
-    # # convert detections to masks
-    # detections.mask = segment(
-    #     sam_predictor=sam_predictor,
-    #     image=cv2.cvtColor(image, cv2.COLOR_BGR2RGB),
-    #     xyxy=detections.xyxy
-    # )
-    """
-    def efficient_sam_box_prompt_segment(image, pts_sampled, model):
-        bbox = torch.reshape(torch.tensor(pts_sampled), [1, 1, 2, 2])
-        bbox_labels = torch.reshape(torch.tensor([2, 3]), [1, 1, 2])
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        img_tensor = ToTensor()(image)
-
-        predicted_logits, predicted_iou = model(
-            img_tensor[None, ...].cuda(),
-            bbox.cuda(),
-            bbox_labels.cuda(),
-        )
-        predicted_logits = predicted_logits.cpu()
-        all_masks = torch.ge(torch.sigmoid(predicted_logits[0, 0, :, :, :]), 0.5).numpy()
-        predicted_iou = predicted_iou[0, 0, ...].cpu().detach().numpy()
-
-        max_predicted_iou = -1
-        selected_mask_using_predicted_iou = None
-        for m in range(all_masks.shape[0]):
-            curr_predicted_iou = predicted_iou[m]
-            if (
-                    curr_predicted_iou > max_predicted_iou
-                    or selected_mask_using_predicted_iou is None
-            ):
-                max_predicted_iou = curr_predicted_iou
-                selected_mask_using_predicted_iou = all_masks[m]
-        return selected_mask_using_predicted_iou
-
-
-    # # collect segment results from EfficientSAM
-    result_masks = []
-    for box in detections.xyxy:
-        mask = efficient_sam_box_prompt_segment(image, box, efficientsam)
-        result_masks.append(retain_largest_connected_component(mask)) #后处理 single object mask 保留最大连通部分
-    if len(result_masks)==0:
-        print(f'skip {da_n}, which is empty after clawer fliter')
-        continue
-    detections.mask = np.array(result_masks)
-    # vis_masks(detections,image)
-
-
-    detections= Clawer_masks_post_filter(grounding_dino_model, image, detections, AUTOMATIC_CLASSES, subordinate_thr=0.8, edge_thr=0.5, tiny_thr=0.01)
-    # annotated_img = vis_masks(detections, image)
-    # visualize_rgb_image(Image.fromarray(annotated_img))
-
-    # end_time = time.time()
-    # print(f"Elapsed time: {end_time - start_time} seconds")
-
-    # 标注生成
-    labels = [
-        f"{AUTOMATIC_CLASSES[class_id]}"
-        for class_id, confidence in zip(detections.class_id, detections.confidence)
-    ]
-
-    if len(labels)==0:
-        print(f'skip {da_n}, which is empty after clawer fliter')
-        continue
-    print('mask_saving after process')
+def efficient_sam_box_prompt_segment(image, pts_sampled, model):
+    bbox = torch.reshape(torch.tensor(pts_sampled), [1, 1, 2, 2])
+    bbox_labels = torch.reshape(torch.tensor([2, 3]), [1, 1, 2])
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    annotated_image = my_annotate_image(image.copy(), detections, labels)
-    #saving masks
-    mask_path = save_masks(detections.mask, dst_dir_path, da_n)
-    cv2.imwrite( os.path.join(osp.dirname(mask_path[0]),f"anotated_img.png"),annotated_image)
-    instances= dict()
-    instances['obj_label'] = []
-    instances['mask_path'] = []
-    for i in range(len(detections.mask)):
-        instances['obj_label'].append(labels[i])
-        instances['mask_path'].append(mask_path[i])
-    data[da_n]['instances'] = instances
-    data[da_n]['caption'] = caption
+    img_tensor = ToTensor()(image)
 
-save_json(data,"/data/Hszhu/dataset/PIE-Bench_v1/packed_data_full_tag.json")
+    predicted_logits, predicted_iou = model(
+        img_tensor[None, ...].cuda(),
+        bbox.cuda(),
+        bbox_labels.cuda(),
+    )
+    predicted_logits = predicted_logits.cpu()
+    all_masks = torch.ge(torch.sigmoid(predicted_logits[0, 0, :, :, :]), 0.5).numpy()
+    predicted_iou = predicted_iou[0, 0, ...].cpu().detach().numpy()
+
+    max_predicted_iou = -1
+    selected_mask_using_predicted_iou = None
+    for m in range(all_masks.shape[0]):
+        curr_predicted_iou = predicted_iou[m]
+        if curr_predicted_iou > max_predicted_iou or selected_mask_using_predicted_iou is None:
+            max_predicted_iou = curr_predicted_iou
+            selected_mask_using_predicted_iou = all_masks[m]
+    return selected_mask_using_predicted_iou
+
+def main(data_id, base_dir):
+    dst_base = osp.join(base_dir, f'Subset_{data_id}')
+    if osp.exists(osp.join(dst_base, f"packed_data_full_tag_{data_id}.json")):
+        print(f'grounding for {data_id} already finish!')
+        return
+    # MAIN Process
+    ckpt_base_dir = "/data/Hszhu/prompt-to-prompt/GroundingSAM_ckpts"
+    # load models
+    DEVICE =DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    GROUNDING_DINO_CONFIG_PATH = "./GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py"
+    GROUNDING_DINO_CHECKPOINT_PATH = osp.join(ckpt_base_dir, "groundingdino_swint_ogc.pth")
+
+    # SAM_ENCODER_VERSION = "vit_h"
+    # SAM_CHECKPOINT_PATH = osp.join(ckpt_base_dir,"sam_vit_h_4b8939.pth")
+
+    TAG2TEXT_CHECKPOINT_PATH = osp.join(ckpt_base_dir, "tag2text_swin_14m.pth")
+    RAM_CHECKPOINT_PATH = osp.join(ckpt_base_dir, "ram_swin_large_14m.pth")
+
+    TAG2TEXT_THRESHOLD = 0.64
+    BOX_THRESHOLD = 0.3
+    TEXT_THRESHOLD = 0.3
+    IOU_THRESHOLD = 0.7
+
+    # Building GroundingDINO inference model
+    grounding_dino_model = Model(model_config_path=GROUNDING_DINO_CONFIG_PATH,
+                                 model_checkpoint_path=GROUNDING_DINO_CHECKPOINT_PATH)
+    grounding_dino_model = load_clip_on_the_main_Model(grounding_dino_model, DEVICE)  # load GS with CLIP
+
+    # Building SAM Model and SAM Predictor
+    # sam = sam_model_registry[SAM_ENCODER_VERSION](checkpoint=SAM_CHECKPOINT_PATH)
+    # sam_predictor = SamPredictor(sam)#TODO:CHECK 182 102 64 1 3 5 0 377 378
+    efficientsam = build_efficient_sam_vits().to(DEVICE)
+
+    # Tag2Text
+    # initialize Tag2Text
+    normalize = TS.Normalize(
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225]
+    )
+    transform = TS.Compose(
+        [
+            TS.Resize((384, 384)),
+            TS.ToTensor(),
+            normalize
+        ]
+    )
+    # 加载Spacy的语言模型
+    # nlp = spacy.load('en_core_web_sm')
+    # IGNORE_LIST = []
+    DELETE_TAG_INDEX = []  # filter out attributes and action which are difficult to be grounded
+    for idx in range(3012, 3429):
+        DELETE_TAG_INDEX.append(idx)
+
+    # tag2text
+    tag2text_model = tag2text(pretrained=TAG2TEXT_CHECKPOINT_PATH,
+                              image_size=384,
+                              vit='swin_b',
+                              delete_tag_index=DELETE_TAG_INDEX,
+                              text_encoder_type='/data/Hszhu/prompt-to-prompt/bert-base-uncased')
+    # threshold for tagging
+    # we reduce the threshold to obtain more tags
+    tag2text_model.threshold = TAG2TEXT_THRESHOLD
+    tag2text_model.eval()
+    tag2text_model = tag2text_model.to(DEVICE)
+    omit_list = ['photo', 'eye', 'rock', 'dress', 'hand', 'hair', 'couple', 'mountain', 'lake', 'wall']
+    dst_dir_path = osp.join(dst_base, "masks_tag/")
+    new_data = dict()
+    dataset_json_file = osp.join(base_dir, "meta_data.json")
+    data = load_json(dataset_json_file)  # load img paths
+    data_parts = split_data(data, 4, seed=42, subset_num=100000)
+
+    for da_n, da in tqdm(data_parts[data_id].items(), desc=f'procedding GroundingSAM Part:{data_id}'):
+        try:
+            new_data[da_n] = dict()
+            # da = data_parts[data_id]['012987559'] #'018178356'
+            SOURCE_IMAGE_PATH = da['img_path'] #for grit use img_path
+            SOURCE_CAPTION = da['caption']
+            image = cv2.imread(SOURCE_IMAGE_PATH)  # bgr
+            image_pillow = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))  # rgb
+
+            image_pillow = image_pillow.resize((384, 384))
+            image_pillow = transform(image_pillow).unsqueeze(0).to(DEVICE)
+
+            # Tag2Text
+            specified_tags = 'None'
+            res_tag2text = inference_tag2text(image_pillow, tag2text_model, specified_tags)
+            AUTOMATIC_CLASSES = res_tag2text[0].split(" | ")
+            text_prompt = res_tag2text[0].replace(' |', ',')
+            caption = res_tag2text[2]
+            AUTOMATIC_CLASSES = [a for a in AUTOMATIC_CLASSES if a not in omit_list]
+
+            # GroundingDino detect objects
+            detections = grounding_dino_model.predict_with_classes(
+                image=image,
+                classes=AUTOMATIC_CLASSES,
+                box_threshold=BOX_THRESHOLD,
+                text_threshold=BOX_THRESHOLD
+            )
+
+            # NMS post process
+            nms_idx = torchvision.ops.nms(
+                torch.from_numpy(detections.xyxy),
+                torch.from_numpy(detections.confidence),
+                IOU_THRESHOLD
+            ).numpy().tolist()
+
+            detections.xyxy = detections.xyxy[nms_idx]
+            detections.confidence = detections.confidence[nms_idx]
+            detections.class_id = detections.class_id[nms_idx]
+
+            # Efficient SAM segmentation
+            result_masks = []
+            for box in detections.xyxy:
+                mask = efficient_sam_box_prompt_segment(image, box, efficientsam)
+                result_masks.append(retain_largest_connected_component(mask))
+
+            detections.mask = np.array(result_masks)
+
+            detections = Clawer_masks_post_filter(grounding_dino_model, image, detections, AUTOMATIC_CLASSES,mask,
+                                                  subordinate_thr=0.8, edge_thr=0.7, tiny_thr=0.01)
+
+            labels = [
+                f"{AUTOMATIC_CLASSES[class_id]}"
+                for class_id, confidence in zip(detections.class_id, detections.confidence)
+            ]
+
+            annotated_image = my_annotate_image(image.copy(), detections, labels)
+            mask_path = save_masks(detections.mask, dst_dir_path, da_n)
+
+            if len(mask_path) == 0:
+                continue
+
+            cv2.imwrite(os.path.join(osp.dirname(mask_path[0]), f"anotated_img.png"), annotated_image)
+
+            instances = dict()
+            instances['obj_label'] = []
+            instances['mask_path'] = []
+            for i in range(len(detections.mask)):
+                instances['obj_label'].append(labels[i])
+                instances['mask_path'].append(mask_path[i])
+
+            new_data[da_n]['instances'] = instances
+            new_data[da_n]['caption'] = SOURCE_CAPTION
+            new_data[da_n]['src_img_path'] = SOURCE_IMAGE_PATH
+        except:
+            print('skip error case')
+            continue
+
+    save_json(new_data, osp.join(dst_base, f"packed_data_full_tag_{data_id}.json"))
+
+if __name__ == "__main__":
+    # 使用 argparse 解析命令行参数
+    parser = argparse.ArgumentParser(description="GroundingSAM processing script")
+    parser.add_argument('--data_id', type=int, required=True, help="Data ID to process")
+    parser.add_argument('--base_dir', type=str, required=True, help="Base directory path for dataset")
+    # parser.add_argument('--gpu_id', type=int, default=0, help="Specify the GPU to use. Default is GPU 0")
+
+    args = parser.parse_args()
+
+
+
+
+    # 在需要时使用 device
+    # model.to(device)
+    # tensor = tensor.to(device)
+
+    # 调用主逻辑并传入设备
+    main(args.data_id, args.base_dir)
+

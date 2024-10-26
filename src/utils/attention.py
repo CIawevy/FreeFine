@@ -851,7 +851,7 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
             h,w = mask_.shape
             attention_map_length = 0
             for k,v in self.step_store.items():
-                if self.step_num==0:
+                if self.is_locating:
                     weight = 1.0 if 'cross' in k else 0.0
                 else:
                     weight = 1.0 if 'cross' in k else 1.0
@@ -882,27 +882,29 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
                 self.forbit_expand_area = self.obj_mask
 
             # expansion_masks = self.expansion_mask_on_the_fly
-            if self.step_num==1 or self.is_locating:
+            # if self.step_num==1 and self.is_locating:
+            if self.step_num==1:
                 self.original_obj_mask = self.obj_mask
+            if self.is_locating: #enhance init ca
                 # auto threshold but avoid mask shrinking
                 candidate_mask = self.fetch_expansion_mask_from_store(expansion_masks, self.original_obj_mask, self.original_obj_mask,
                                                                       roi_expansion=False,mask_threshold=0.15,otsu=True,)
-                #shadow_mask -> shadow+obj mask
-                shadow_mask = torch.where(~(self.forbit_expand_area > 0).bool(), candidate_mask, 0)
-                if shadow_mask.sum() == 0:  # weak
+                #expand_mask -> expand + obj mask
+                expand_mask = torch.where(~(self.forbit_expand_area > 0).bool(), candidate_mask, 0)
+                if expand_mask.sum() == 0:  # first step enhance
                     self.is_locating = True
                 else:
                     self.is_locating = False
-                self.obj_mask = shadow_mask
+                self.obj_mask = expand_mask
             else:
                 candidate_mask = self.fetch_expansion_mask_from_store(expansion_masks, self.original_obj_mask,
                                                                       self.original_obj_mask,
                                                                       roi_expansion=False, mask_threshold=0.15,
                                                                       otsu=True, )
-                # shadow_mask -> shadow+obj mask
-                shadow_mask = torch.where(~(self.forbit_expand_area > 0).bool(), candidate_mask, 0)
+                # expand_mask -> expand+obj mask
+                expand_mask = torch.where(~(self.forbit_expand_area > 0).bool(), candidate_mask, 0)
                 if not self.last_step:
-                    self.obj_mask = shadow_mask
+                    self.obj_mask = expand_mask
                 else:
                     self.obj_mask = candidate_mask
 
@@ -944,7 +946,7 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         else:
             if d_ratio in self.down_sampling_shape.keys():
                 h,w = self.down_sampling_shape[d_ratio]
-                assert h * w == seq
+                assert h * w == seq,f'{h} * {w} != {seq}'
 
                 return h,w
 
@@ -1006,6 +1008,8 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         self.down_sampling_shape = dict()
         self.forbit_expand_area=None
         self.assist_len = None
+        self.is_locating=False
+        self.local_focus_box = None
 
 
 
@@ -1350,7 +1354,7 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         # down sample
         local_region = F.interpolate(local_region.unsqueeze(0).unsqueeze(0), size=(attn_h, attn_w),
                                      mode='nearest').squeeze(0, 1).flatten()
-        if self.step_num==0 or self.is_locating:
+        if self.is_locating:
             local_focus_box = F.interpolate(self.local_focus_box.unsqueeze(0).unsqueeze(0), size=(attn_h, attn_w),
                                             mode='nearest').squeeze(0, 1).flatten()
         else:
@@ -1376,7 +1380,7 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         batch_size, sequence_length, _ = (
             query.shape
         )
-        local_region = self.obj_mask
+        local_region = self.local_edit_region
         h, w = local_region.shape
         d_ratio = 2**int(math.log2((h * w // sequence_length) ** 0.5)+0.5)
         attn_h, attn_w = self.get_down_h_w(d_ratio, h, w,sequence_length)
@@ -1493,6 +1497,7 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         self.down_sampling_shape = dict()
         self.forbit_expand_area=None
         self.assist_len=None
+        self.is_locating=False
         # MODEL_TYPE = {
         #     "SD": 16,
         #     "SDXL": 70
@@ -1521,6 +1526,7 @@ class SelfAttentionControlEdit(AttentionStore, abc.ABC):
                 pass
             else:
                 attn[1:] = self.replace_self_attention(attn_base, attn_repalce, place_in_unet)
+            attn = attn.reshape(self.batch_size * h, *attn.shape[2:])
             attn = attn.reshape(self.batch_size * h, *attn.shape[2:])
         return attn
 

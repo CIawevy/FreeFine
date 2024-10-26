@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="1"
+# os.environ["CUDA_VISIBLE_DEVICES"]="0"
 import os.path as osp
 import json
 from tqdm import  tqdm
@@ -12,7 +12,7 @@ sys.path.append('/data/Hszhu/Reggio')
 # from simple_lama_inpainting import SimpleLama
 from lama import lama_with_refine
 from ram.models import tag2text
-
+import argparse
 from src.demo.model import AutoPipeReggio
 import torch
 import cv2
@@ -240,106 +240,150 @@ def split_data(data, num_splits, subset_num=None,seed=None):
         data_parts.append(data_part)
 
     return data_parts
+def judge_exist(da_n,dst_dir,instances):
+    # 创建子文件夹
+    inp_save_path = os.path.join(dst_dir, da_n)
+    ins_num = len(instances['obj_label'])
+    img_path = os.path.join(inp_save_path, f"img_{ins_num}.png")
+    #judge whether last instance is saved
+    return osp.exists(img_path)
+
+
+
+def main(data_id, base_dir):
+    dst_base = osp.join(base_dir, f'Subset_{data_id}')
+    if osp.exists(osp.join(dst_base, f"packed_data_full_INP_{data_id}.json")):
+        print(f'expansion inpainting for {data_id} already finish!')
+        return
+    dataset_json_file = osp.join(dst_base, f"packed_data_full_tag_{data_id}.json")
+
+    data = load_json(dataset_json_file)
+    inp_mode = 'sd'
+
+    # dst_dir_path_exp = osp.join(dst_base, "EXP_masks/")
+    dst_dir_path_inp = osp.join(dst_base, "inp_imgs/")
+
+    device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+    pretrained_inpaint_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-inpainting/"
+    pretrained_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-v1-5/"
+    vae_path = "default"
+    # Tag2Text
+    TAG2TEXT_THRESHOLD = 0.64  # 0.64
+    ckpt_base_dir = "/data/Hszhu/prompt-to-prompt/GroundingSAM_ckpts"
+    TAG2TEXT_CHECKPOINT_PATH = osp.join(ckpt_base_dir, "tag2text_swin_14m.pth")
+    RAM_CHECKPOINT_PATH = osp.join(ckpt_base_dir, "ram_swin_large_14m.pth")
+    DELETE_TAG_INDEX = []  # filter out attributes and action which are difficult to be grounded
+    for idx in range(3012, 3429):
+        DELETE_TAG_INDEX.append(idx)
+
+    tag2text_model = tag2text(pretrained=TAG2TEXT_CHECKPOINT_PATH,
+                              image_size=384,
+                              vit='swin_b',
+                              delete_tag_index=DELETE_TAG_INDEX,
+                              text_encoder_type='/data/Hszhu/prompt-to-prompt/bert-base-uncased')
+    # threshold for tagging
+    # we reduce the threshold to obtain more tags
+    tag2text_model.threshold = TAG2TEXT_THRESHOLD
+    tag2text_model.eval()
+    tag2text_model = tag2text_model.to(device)
+
+    # pretrained_inpaint_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-2-inpainting/"
+    sd_inpainter = StableDiffusionInpaintPipeline.from_pretrained(
+        pretrained_inpaint_model_path,
+        safety_checker=None,
+        requires_safety_checker=False,
+        revision="fp16",
+        torch_dtype=torch.float16,
+    ).to(device)
+    sd_inpainter._progress_bar_config = {"disable": True}
+    sd_inpainter.enable_attention_slicing()
+    precision = torch.float32
+    model = AutoPipeReggio.from_pretrained(pretrained_model_path, torch_dtype=precision).to(device)
+    if vae_path != "default":
+        model.vae = AutoencoderKL.from_pretrained(
+            vae_path
+        ).to(model.vae.device, model.vae.dtype)
+
+    model.scheduler = DDIMScheduler.from_config(model.scheduler.config, )
+    model.inpainter = lama_with_refine(device)
+    model.sd_inpainter = sd_inpainter
+    model.tag2text = tag2text_model
+    model = load_clip_on_the_main_Model(model, device)
+    controller = Mask_Expansion_SELF_ATTN(block_size=8, drop_rate=0.5, start_layer=10)
+    controller.contrast_beta = 1.67
+    controller.use_contrast = True
+    model.controller = controller
+    register_attention_control(model, controller)
+    model.modify_unet_forward()
+    model.enable_attention_slicing()
+    model.enable_xformers_memory_efficient_attention()
+    assist_prompt = ['shadow', ]
+    # omit_label_list = ['field','sky']
+    # for da_n,da in tqdm(data.items(),desc='proceeding inpainting:'):
+    for da_n, da in tqdm(data.items(), desc=f'Proceeding inpainting (data_parts {data_id})'):
+
+        # da_n = '3' #378
+        # da = data[da_n]
+        # da_n = list(data.keys())[202]
+        # da = data[da_n]
+        if 'instances' not in da.keys():
+            print(f'skip {da_n} for not valid instance')
+            continue
+        image_path = da['src_img_path']
+        instances = da['instances']
+        if judge_exist(da_n,dst_dir_path_inp,instances):
+            instances['inp_img_path'] = [osp.join(dst_dir_path_inp, da_n,f"img_{id+1}.png") for id in range(len(instances['obj_label'])) ]
+            data[da_n]['instances'] = instances
+            print(f'skip {da_n} for already exist')
+            continue
+        try:
+            mask_list = [cv2.imread(path) for path in instances['mask_path']]  # load all masks
+            obj_label_list = instances['obj_label']
+            img = cv2.imread(image_path)  # bgr
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            # mask_list,obj_label_list,stat = filter_out_invalid_label(model,img,mask_list,obj_label_list)
+            # if not stat:
+            # TODO: 1.complete the obj parts and replace original mask
+            # TODO: 2.use semantic ca to get surroundings as exp mask，eg: shadow
+            expansion_mask_list, inpainting_imgs_list = model.expansion_and_inpainting_func(img, mask_list,
+                                                                                            obj_label_list,
+                                                                                            max_resolution=512,
+                                                                                            expansion_step=10,
+                                                                                            max_try_times=10,
+                                                                                            samples_per_time=5,
+                                                                                            assist_prompt=assist_prompt,
+                                                                                            mode=inp_mode,
+                                                                                            sem_expansion=True)
+            # mask_path = save_masks(expansion_mask_list, dst_dir_path_exp, da_n)
+            # instances['exp_mask_path'] = mask_path
+
+            # lama_inp_path = save_imgs(lama_inp_list, dst_dir_path_inp_lama, da_n)
+            # instances['lama_inp_img_path'] = lama_inp_path
+            if len(inpainting_imgs_list) > 0:  # if all filtered with no sd inpainting results
+                best_inp_path = save_imgs(inpainting_imgs_list, dst_dir_path_inp, da_n)
+                instances['inp_img_path'] = best_inp_path
+            data[da_n]['instances'] = instances  # add inp_img_path to data json
+        except Exception as e:
+            print(f"skip error case for: {e}")
+            model.controller.reset() #avoid
+            continue
+    save_json(data, osp.join(dst_base, f"packed_data_full_INP_{data_id}.json"))
+
+if __name__ == "__main__":
+    # 使用 argparse 解析命令行参数
+    parser = argparse.ArgumentParser(description="GroundingSAM processing script")
+    parser.add_argument('--data_id', type=int, required=True, help="Data ID to process")
+    parser.add_argument('--base_dir', type=str, required=True, help="Base directory path for dataset")
+    # parser.add_argument('--gpu_id', type=int, default=0, help="Specify the GPU to use. Default is GPU 0")
+
+    args = parser.parse_args()
 
 
 
 
+    # 在需要时使用 device
+    # model.to(device)
+    # tensor = tensor.to(device)
 
-
-dataset_json_file = "/data/Hszhu/dataset/PIE-Bench_v1/packed_data_full_tag.json"
-gpu_ids = [0,1,2,3] #100张图 跑一个子集
-data = load_json(dataset_json_file)
-data_parts = split_data(data, 1, subset_num=100,seed=42)
-inp_mode = 'sd'  #'sd','lama_sd'
-
-dst_dir_path_exp = "/data/Hszhu/dataset/PIE-Bench_v1/Subset_sd/EXP_masks/"
-dst_dir_path_inp = "/data/Hszhu/dataset/PIE-Bench_v1/Subset_sd/inp_imgs/"
-# dst_dir_path_inp_lama =  "/data/Hszhu/dataset/PIE-Bench_v1/inp_imgs_lama/"
-device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
-pretrained_inpaint_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-inpainting/"
-pretrained_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-v1-5/"
-vae_path = "default"
-#Tag2Text
-TAG2TEXT_THRESHOLD = 0.64 #0.64
-ckpt_base_dir = "/data/Hszhu/prompt-to-prompt/GroundingSAM_ckpts"
-TAG2TEXT_CHECKPOINT_PATH = osp.join(ckpt_base_dir,"tag2text_swin_14m.pth")
-RAM_CHECKPOINT_PATH = osp.join(ckpt_base_dir,"ram_swin_large_14m.pth")
-DELETE_TAG_INDEX = []  # filter out attributes and action which are difficult to be grounded
-for idx in range(3012, 3429):
-    DELETE_TAG_INDEX.append(idx)
-
-tag2text_model = tag2text(pretrained=TAG2TEXT_CHECKPOINT_PATH,
-                          image_size=384,
-                          vit='swin_b',
-                          delete_tag_index=DELETE_TAG_INDEX,
-                          text_encoder_type='/data/Hszhu/prompt-to-prompt/bert-base-uncased')
-# threshold for tagging
-# we reduce the threshold to obtain more tags
-tag2text_model.threshold = TAG2TEXT_THRESHOLD
-tag2text_model.eval()
-tag2text_model = tag2text_model.to(device)
-
-# pretrained_inpaint_model_path = "/data/Hszhu/prompt-to-prompt/stable-diffusion-2-inpainting/"
-sd_inpainter = StableDiffusionInpaintPipeline.from_pretrained(
-    pretrained_inpaint_model_path,
-    safety_checker=None,
-    requires_safety_checker=False,
-    revision="fp16",
-    torch_dtype=torch.float16,
-).to(device)
-sd_inpainter._progress_bar_config= {"disable": True}
-sd_inpainter.enable_attention_slicing()
-precision=torch.float32
-model = AutoPipeReggio.from_pretrained(pretrained_model_path,torch_dtype=precision).to(device)
-if vae_path != "default":
-    model.vae = AutoencoderKL.from_pretrained(
-        vae_path
-    ).to(model.vae.device, model.vae.dtype)
-
-model.scheduler = DDIMScheduler.from_config(model.scheduler.config,)
-model.inpainter = lama_with_refine(device)
-model.sd_inpainter = sd_inpainter
-model.tag2text = tag2text_model
-model = load_clip_on_the_main_Model(model,device)
-controller = Mask_Expansion_SELF_ATTN(block_size=8,drop_rate=0.5,start_layer=10)
-controller.contrast_beta = 1.67
-controller.use_contrast = True
-model.controller = controller
-register_attention_control(model, controller)
-model.modify_unet_forward()
-model.enable_attention_slicing()
-model.enable_xformers_memory_efficient_attention()
-assist_prompt = ['shadow','light']
-# omit_label_list = ['field','sky']
-# for da_n,da in tqdm(data.items(),desc='proceeding inpainting:'):
-for da_n, da in tqdm(data_parts[0].items(), desc='Proceeding inpainting (data_parts SD)'):
-    # da_n = '3' #378
-    # da = data[da_n]
-    image_path = da['image_path']
-    if 'instances' not in da.keys():
-        print(f'skip {da_n} for not valid instance')
-        continue
-    instances = da['instances']
-    mask_list = [cv2.imread(path) for path in instances['mask_path']]  #load all masks
-    obj_label_list = instances['obj_label']
-    img = cv2.imread(image_path)  # bgr
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    # mask_list,obj_label_list,stat = filter_out_invalid_label(model,img,mask_list,obj_label_list)
-    # if not stat:
-    expansion_mask_list, inpainting_imgs_list = model.expansion_and_inpainting_func(img, mask_list,
-                                                                                                   obj_label_list,
-                                                                                                   max_resolution=512,
-                                                                                                   expansion_step=10,
-                                                                                                   max_try_times=10,
-                                                                                                   samples_per_time=5,
-                                                                                                   assist_prompt=assist_prompt,
-                                                                                                   mode=inp_mode)
-    mask_path = save_masks(expansion_mask_list, dst_dir_path_exp, da_n)
-    instances['exp_mask_path'] = mask_path
-    # lama_inp_path = save_imgs(lama_inp_list, dst_dir_path_inp_lama, da_n)
-    # instances['lama_inp_img_path'] = lama_inp_path
-    if len(inpainting_imgs_list)>0:#if all filtered with no sd inpainting results
-        best_inp_path = save_imgs(inpainting_imgs_list, dst_dir_path_inp, da_n)
-        instances['inp_img_path'] = best_inp_path
-    data[da_n]['instances'] = instances
-save_json(data,"/data/Hszhu/dataset/PIE-Bench_v1/Subset_sd/packed_data_full_EXP_INP.json")
+    # 调用主逻辑并传入设备
+    main(args.data_id, args.base_dir)

@@ -1,0 +1,212 @@
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Data Filter</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                margin: 0;
+                padding: 0;
+                min-height: 100vh;
+                background-color: #f4f4f9;
+            }
+
+            h1 {
+                font-size: 28px;
+                margin-bottom: 10px;
+            }
+
+            h2 {
+                font-size: 22px;
+                margin-bottom: 10px;
+            }
+
+            p {
+                font-size: 20px;
+                margin-bottom: 20px;
+                line-height: 1.8;
+                text-align: center;
+            }
+
+            .image-container {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                margin-bottom: 20px;
+            }
+
+            img  {
+            margin: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            width: 400px;  /* 增加图片大小 */
+            }
+
+            .button-container {
+                display: flex;
+                justify-content: center;
+                gap: 15px;
+            }
+
+            button {
+                padding: 15px 25px;  /* 调整按钮大小 */
+                font-size: 18px;     /* 调整字体大小 */
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                transition: background-color 0.3s ease;
+            }
+
+            button:hover {
+                background-color: #45a049;
+            }
+
+            button:disabled {
+                background-color: #ddd;
+                cursor: not-allowed;
+            }
+
+            form {
+                margin-top: 20px;
+            }
+
+            /* 进度条样式 */
+            .progress-container {
+                width: 60%;
+                background-color: #e0e0df;
+                border-radius: 10px;
+                margin: 20px 0;
+            }
+
+            .progress-bar {
+                width: {{ progress }}%;  /* 动态宽度 */
+                height: 30px;
+                background-color: #4CAF50;
+                border-radius: 10px;
+                text-align: center;
+                line-height: 30px;
+                color: white;
+                font-size: 16px;
+            }
+
+            /* 状态栏样式 */
+            .status-bar {
+                width: 80%;
+                background-color: #fff;
+                padding: 10px;
+                margin-top: 20px;
+                border-radius: 8px;
+                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+                text-align: left;
+            }
+
+            .status-bar h3 {
+                margin-top: 0;
+                font-size: 20px;
+            }
+
+            .undo-stack-list {
+                font-size: 16px;
+                list-style-type: none;
+                padding-left: 0;
+            }
+
+            .undo-stack-list li {
+                margin: 5px 0;
+            }
+           .instructions-title {
+                text-align: center; /* 标题居中 */
+                font-size: 22px; /* 或其他你需要的大小 */
+                margin-bottom: 10px; /* 调整间距 */
+            }
+
+            .instructions {
+                font-size: 20px; /* 设置更大的字体大小 */
+                text-align: left; /* 设置内容为左对齐 */
+                margin-top: 10px;
+                margin-bottom: 20px;
+            }
+
+            .instructions ul {
+                padding: 0;  /* 移除默认的 padding */
+            }
+
+            .instructions li {
+                list-style: none;  /* 移除列表项的默认样式 */
+                line-height: 1.5;  /* 设置适当的行高 */
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Data Filter</h1>
+        <p>欢迎来到Clawer的数据过滤平台。在这里，您可以高效地筛选和处理数据。</p>
+
+        <div class="instructions">
+            <h2 class="instructions-title">使用指南：</h2>
+            <ul>
+                <li>1. 自动加载数据、记录状态</li>
+                <li>2. 随时停止随时开始，并允许10步以内的撤回</li>
+                <li>3. 判断图片不适合编辑: Skip Image</li>
+                <li>4. 判断实例不适合编辑(过小、非前景等)或Object Label有错: Skip Instance</li>
+                <li>5. 判断单个编辑结果不真实、不明显、重复: Skip </li>
+            </ul>
+        </div>
+
+        <!-- 进度条 -->
+        <div class="progress-container">
+            <div class="progress-bar">{{ progress }}%</div>  <!-- progress 从后端传递 -->
+        </div>
+        <p><strong>Edit Prompt:</strong> {{ instance.edit_prompt }}</p>
+        <p><strong>Edit Param :</strong>
+        dx={{ instance.edit_param[0] }}
+        dy={{ instance.edit_param[1] }}
+        dz={{ instance.edit_param[2] }}
+        rx={{ instance.edit_param[3] }}
+        ry={{ instance.edit_param[4] }}
+        rz={{ instance.edit_param[5] }}
+        sx={{ instance.edit_param[6] }}
+        sy={{ instance.edit_param[7] }}
+        sz={{ instance.edit_param[8] }}
+    </p>
+        <p><strong>Object Label:</strong> {{ instance.obj_label }}</p>
+
+        <h2>Images</h2>
+        <div class="image-container">
+            <img src="{{ url_for('serve_image', filename=instance.ori_img) }}" alt="Original Image" width="300">
+            <img src="{{ url_for('serve_image', filename=instance.ori_mask) }}" alt="Mask Image" width="300">
+            <img src="{{ url_for('serve_image', filename=instance.edit_result) }}" alt="Edit Result Image" width="300">
+        </div>
+
+        <!-- Form -->
+        <form method="POST">
+            <div class="button-container">
+                <button type="submit" name="decision" value="keep">Keep</button>
+                <button type="submit" name="decision" value="skip">Skip Edit</button>
+                <button type="submit" name="decision" value="skip_instance"
+                    {% if disable_skip_instance %} disabled {% endif %}>Skip Instance</button>
+                <button type="submit" name="decision" value="skip_img"
+                    {% if disable_skip_image %} disabled {% endif %}>Skip Image</button>
+                <button type="submit" name="decision" value="undo">Undo Last Action</button>
+            </div>
+        </form>
+
+        <!-- 状态栏展示 undo_stack -->
+        <div class="status-bar">
+            <h3>操作记录 (Undo Stack):</h3>
+            <ul class="undo-stack-list">
+                {% for action in undo_stack %}
+                    <li>{{ action }}</li>  <!-- 每一条撤回记录 -->
+                {% endfor %}
+            </ul>
+        </div>
+
+    </body>
+    </html>
