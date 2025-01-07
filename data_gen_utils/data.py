@@ -1,10 +1,9 @@
-import torch
 import os
 import os.path as osp
 from tqdm import  tqdm
 import json
 from data_gen_utils.blip2 import  BLIP2
-from data_gen_utils.Myclip import Myclip
+
 
 def save_json(data_dict, file_path):
     """

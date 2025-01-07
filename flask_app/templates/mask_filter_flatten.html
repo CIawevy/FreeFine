@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Mask Filter</title>
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            background-color: #f4f4f9;
+            position: relative;
+        }
+
+        h1 { font-size: 28px; margin-bottom: 10px; }
+        h2 { font-size: 22px; margin-bottom: 10px; }
+        h3 { font-size: 20px; margin-bottom: 10px; }
+        p { font-size: 20px; margin-bottom: 20px; line-height: 1.8; text-align: center; }
+        .image-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+            align-items: flex-start; /* 确保顶部对齐 */
+            margin-bottom: 20px;
+        }
+        .image-container img {
+            vertical-align: top; /* 确保所有图像顶部对齐 */
+            object-fit: contain; /* 保持原始比例 */
+            max-height: 300px; /* 可选：限制最大高度，防止图像过高 */
+            margin: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+        }
+        .zoomable {
+            vertical-align: top;
+            object-fit: contain;
+            max-height: 300px;
+            margin: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .zoomable.expanded {
+            transform: scale(1.5); /* 放大比例 */
+            z-index: 10; /* 确保放大的图片不被其他元素遮挡 */
+        }
+
+        /* 选择按钮的样式 */
+        .select-button.expanded {
+            background-color: #ffc107;  /* 选中时的样式 */
+            color: black;
+        }
+
+       .image-container img.expanded {
+            transform: scale(1.5); /* 放大比例 */
+            z-index: 10; /* 确保放大的图片不被其他元素遮挡 */
+        }
+
+        .button-container { display: flex; justify-content: center; gap: 15px; margin-top: 20px; }
+
+        /* 全局操作按钮样式 */
+        .action-button {
+            padding: 15px 25px;
+            font-size: 18px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        .action-button:expand { background-color: #0056b3; }
+        .action-button:disabled { background-color: #ddd; cursor: not-allowed; }
+
+        /* 选择掩码按钮样式 */
+        .select-button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        .select-button:expand { background-color: #218838; }
+        .select-button.selected { background-color: #ffc107; color: black; } /* 选中后的样式 */
+
+        .progress-container { width: 60%; background-color: #e0e0df; border-radius: 10px; margin: 20px 0; }
+        .progress-bar { width: {{ progress }}%; height: 30px; background-color: #4CAF50; border-radius: 10px; text-align: center; line-height: 30px; color: white; font-size: 16px; }
+
+        .status-bar { width: 80%; background-color: #fff; padding: 10px; margin-top: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1); text-align: left; }
+        .status-bar h3 { margin-top: 0; font-size: 20px; }
+        .instructions-title { text-align: center; font-size: 22px; margin-bottom: 10px; }
+        .instructions { font-size: 20px; text-align: center; margin-top: 10px; margin-bottom: 20px; }
+        .instructions ul { padding: 0; }
+        .instructions li { list-style: none; line-height: 1.5; }
+
+        .copyright {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 0.9rem;
+            color: #6c757d;
+        }
+
+        .copyright a {
+            text-decoration: none;
+            color: #6c757d;
+        }
+
+        .copyright a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="copyright">
+        © 2024 <a href="https://github.com/CIawevy/flask_app" target="_blank">Clawer</a>. All rights reserved.
+    </div>
+
+    <h1>Mask Filter for Subset {{ subset_id }}</h1>
+    <p>欢迎, <strong>{{ username }}</strong>, 来到掩码数据过滤平台！在这里，您可以高效地筛选和处理掩码数据。</p>
+
+    <div class="instructions">
+        <h2 class="instructions-title">使用指南：</h2>
+        <ul>
+            <li>1. 跳过不合适的标签（错误标签、重复标签、非前景对象、过小区域、大面积缺失、掩码错误）。</li>
+            <li>2. 使用Back可以在不同level选择合适的实例。</li>
+            <li>3. 使用Next保存选择进入到下一步labeling。</li>
+        </ul>
+    </div>
+
+    <!-- 进度条 -->
+    <div class="progress-container">
+        <div class="progress-bar">{{ progress }}%</div>
+    </div>
+
+        <!-- 显示所有图像 -->
+    <!-- 显示所有图像 -->
+    <div class="image-container">
+        <!-- 原始图像 -->
+        <div style="text-align: center;">
+            <img src="data:image/png;base64,{{ ori_img | b64encode }}" alt="Original Image" class="zoomable" ondblclick="toggleZoom(this)">
+            <p>src Image</p>
+        </div>
+
+        <!-- 裁剪后的掩码图像 -->
+        {% for crop_img in crop_images %}
+        <div style="text-align: center;">
+            <img src="data:image/png;base64,{{ crop_img | b64encode }}" alt="Mask Image" class="zoomable" ondblclick="toggleZoom(this)">
+            <p>Mask {{ loop.index }}</p>
+            <button type="button" id="mask_{{ loop.index }}" class="select-button" onclick="toggleSelection('{{ loop.index }}')">选择 (Select)</button>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- 已选择的掩码，居中显示 -->
+    <div style="margin-top: 30px; text-align: center; display: flex; flex-direction: column; align-items: center;">
+        <h3>已选择的掩码：</h3>
+        <ul id="selected-list" style="list-style: none; padding: 0; margin: 0; text-align: center;">
+            {% for lvl, mask_ids in selected_masks.items() %}
+            <li style="margin-bottom: 8px;"><strong>Level {{ lvl }}:</strong>
+                {{ mask_ids | join(', ') if mask_ids else '' }}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <!-- 表单 -->
+    <form method="POST" id="mask-form">
+        <input type="hidden" id="selected_mask_ids" name="selected_mask_ids" value="{{ selected_masks | tojson }}">
+        <div class="button-container">
+            <button type="submit" name="decision" value="Next" class="action-button">跳转 (Next)</button>
+            <button type="submit" name="decision" value="Back" class="action-button">返回 (Back)</button>
+            <button type="button" id="clear-button" class="action-button">清空 (Clear)</button>
+        </div>
+    </form>
+    <input type="hidden" id="username" value="{{ username }}">
+    <script>
+        // 从后端传递的 selected_masks 字典
+        let selectedMasks = {{ selected_masks | tojson }};  // 用于存储每个 level 下的掩码选择
+        const level = {{ level }};  // 从后端动态获取当前 Level
+
+        // 获取页面元素
+        const selectedList = document.getElementById('selected-list');
+        const selectedMaskIdsInput = document.getElementById('selected_mask_ids');
+        const buttons = document.querySelectorAll('.select-button');
+
+        // 打印 selectedMasks 和 selectedMaskIdsInput 元素，确保它们初始化正确
+        console.log('selectedMasks (initial):', selectedMasks);  // 输出初始的 selectedMasks 数据
+        console.log('selectedMaskIdsInput (element):', selectedMaskIdsInput);  // 查看 input 元素
+        function toggleZoom(imgElement) {
+                imgElement.classList.toggle('expanded'); // 切换 'expanded' 类，进行放大或恢复
+            }
+        // 切换掩码选择的选中状态
+        function toggleSelection(maskId) {
+            const button = document.getElementById('mask_' + maskId);
+            console.log('Toggling selection for maskId:', maskId);  // 输出当前处理的 maskId
+            console.log('button element:', button);  // 确认是否找到了按钮元素
+            button.classList.toggle('selected'); // 切换按钮选中样式
+            updateSelectedMasks(maskId, button.classList.contains('selected')); // 更新掩码选择字典
+        }
+
+        function updateSelectedMasks(maskId, isSelected) {
+            // 更新 selectedMasks 数据
+            if (isSelected) {
+                if (!selectedMasks[level].includes(maskId)) {
+                    selectedMasks[level].push(maskId);
+                    console.log('Added maskId:', maskId, 'to selectedMasks[level]');
+                }
+            } else {
+                const index = selectedMasks[level].indexOf(maskId);
+                if (index > -1) {
+                    selectedMasks[level].splice(index, 1);
+                    console.log('Removed maskId:', maskId, 'from selectedMasks[level]');
+                }
+            }
+
+            // 更新隐藏字段的值，确保表单提交时后端能收到
+            selectedMaskIdsInput.value = JSON.stringify(selectedMasks);  // 序列化为 JSON 字符串
+            console.log('Updated selectedMaskIdsInput value (after update):', selectedMaskIdsInput.value);  // 输出更新后的 input value
+
+            // 动态更新显示列表
+            renderSelectedMasks(selectedMasks);
+        }
+
+        // 渲染选择列表
+        function renderSelectedMasks(masks) {
+            selectedList.innerHTML = ''; // 清空现有内容
+            for (const [lvl, maskIds] of Object.entries(masks)) {
+                console.log('Level:', lvl, 'Mask IDs:', maskIds);
+                const listItem = document.createElement('li');
+                listItem.innerHTML = `<strong>Level ${lvl}:</strong> ${maskIds.length > 0 ? maskIds.join(', ') : ''}`;
+                selectedList.appendChild(listItem);
+            }
+
+            // 打印每个 Level 的掩码信息
+            console.log('Render Selected Masks:', masks);
+        }
+
+        // 页面加载时初始化选中状态
+        function initializeSelections() {
+        // 确保 selectedMasks[level] 已经被初始化为数组
+        if (!selectedMasks[level]) {
+            selectedMasks[level] = [];
+        }
+
+        // 确保 selectedMaskIdsInput 被初始化为有效的 JSON 字符串
+        selectedMaskIdsInput.value = JSON.stringify(selectedMasks);
+
+        // 遍历当前 Level 的已选掩码
+        if (selectedMasks[level]) {
+            selectedMasks[level].forEach(maskId => {
+                const button = document.getElementById('mask_' + maskId);
+                console.log('Initializing button for maskId:', maskId, 'Button:', button);
+                if (button) {
+                    button.classList.add('selected');
+                }
+            });
+        }
+
+        // 打印初始化后的 selectedMaskIdsInput
+        console.log('selectedMaskIdsInput value (after initialization):', selectedMaskIdsInput.value);
+
+        // 渲染选择列表
+        renderSelectedMasks(selectedMasks);
+    }
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', initializeSelections);
+
+        // 清空按钮的点击事件
+        document.getElementById('clear-button').addEventListener('click', () => {
+            // 清空所有 Level 的掩码选择
+            for (const lvl in selectedMasks) {
+                selectedMasks[lvl] = [];
+            }
+
+            // 更新按钮的样式（取消选中所有按钮）
+            buttons.forEach(button => button.classList.remove('selected'));
+
+            // 更新显示的选择列表
+            renderSelectedMasks(selectedMasks);
+
+            // 更新隐藏字段的值
+            selectedMaskIdsInput.value = JSON.stringify(selectedMasks);  // 传递一个空的字典
+
+            // 打印清空后的 selectedMasks 和 input value
+            console.log('Cleared selectedMasks:', selectedMasks);
+            console.log('Cleared selectedMaskIdsInput value:', selectedMaskIdsInput.value);
+        });
+        let timeout;
+        // 监听用户活动并重置超时计时
+        function resetTimeout() {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => {
+                // 用户会话超时，触发后端登出
+                let username = document.getElementById('username').value;  // 获取页面中的 username
+
+                fetch(`/logout/${username}`, {
+                    method: 'GET',  // 使用 GET 请求，与你的后端匹配
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                })
+                .then(response => {
+                    console.log('Response:', response);  // 打印响应对象，确保状态是302
+                    if (response.status === 302 || response.status === 301 || response.redirected) {
+                        console.log('Redirecting to', response.url);  // 确认重定向的 URL
+                        window.location.replace(response.url);  // 使用 replace 来避免用户回退
+                    } else {
+                        // 如果没有重定向，打印错误信息
+                        console.error('Unexpected response status:', response.status);
+                    }
+                })
+                .catch(error => {
+                    console.error('Logout error:', error);
+                });
+            }, 10 * 60 * 1000);  // 10分钟超时
+        }
+
+        // 监听用户活动（鼠标移动、键盘输入）
+        document.addEventListener('mousemove', resetTimeout);
+        document.addEventListener('keydown', resetTimeout);
+
+        // 启动初始超时计时器
+        resetTimeout();
+    </script>
+
+    <!-- 清空按钮 -->
+</body>
+</html>

@@ -8,9 +8,11 @@ from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
 import numpy as np
+
+
 sys.path.append('/data/Hszhu/Reggio')
 # from simple_lama_inpainting import SimpleLama
-from lama import lama_with_refine
+# from lama import lama_with_refine
 from src.demo.model import AutoPipeReggio
 import torch
 import cv2
@@ -198,13 +200,20 @@ def get_constrain_areas(mask_list_path):
     constrain_areas[constrain_areas>0] =1
     return constrain_areas[:,:,0]
 
+
 def prepare_mask_pool(instances):
     mask_pool = []
     for i in range(len(instances)):
         ins = instances[str(i)]
         if len(ins) == 0:
             continue
-        mask_pool.append(ins['0']['ori_mask_path'])
+
+        # 获取字典的第一个键
+        first_key = next(iter(ins))
+
+        # 将第一个键对应的 'ori_mask_path' 添加到 mask_pool
+        mask_pool.append(ins[first_key]['ori_mask_path'])
+
     return mask_pool
 def main(data_id, base_dir):
     dst_base = osp.join(base_dir, f'Subset_{data_id}')
@@ -247,7 +256,7 @@ def main(data_id, base_dir):
     else:
         new_data = dict()
 
-    for da_n, da in tqdm(data.items(), desc=f'Proceeding inpainting (Part {data_id})'):
+    for da_n, da in tqdm(data.items(), desc=f'Proceeding repainting (Part {data_id})'):
         # if 'instances' not in da.keys():
         #     print(f'skip {da_n} for not valid instance')
         #     continue
@@ -263,22 +272,34 @@ def main(data_id, base_dir):
             #     continue
             mask_pool = prepare_mask_pool(instances)
             constrain_areas_strict = get_constrain_areas(mask_pool)
+            constrain_areas_strict  = cv2.resize(constrain_areas_strict , dsize=(512,512), interpolation=cv2.INTER_NEAREST)
             for edit_ins,coarse_input_pack in current_ins.items():
                 edit_prompt = coarse_input_pack['edit_prompt']
                 ori_img = cv2.imread(coarse_input_pack['src_img_path'])  # bgr
                 ori_img = cv2.cvtColor(ori_img, cv2.COLOR_BGR2RGB)
-                ori_caption  = coarse_input_pack['tag_caption']
+                # ori_caption  = coarse_input_pack['tag_caption']
                 ori_mask = cv2.imread(coarse_input_pack['ori_mask_path'])
                 obj_label = coarse_input_pack['obj_label']
                 target_mask = cv2.imread(coarse_input_pack['tgt_mask_path'])
                 # ddpm_region_mask =  cv2.imread(coarse_input_pack['ddpm_region_path'])
                 coarse_input = cv2.imread(coarse_input_pack['coarse_input_path'])  # bgr
                 coarse_input = cv2.cvtColor( coarse_input , cv2.COLOR_BGR2RGB)
+                ori_mask = cv2.resize(ori_mask,dsize = target_mask.shape[:2],interpolation=cv2.INTER_NEAREST)
 
-                generated_results,exp_target_mask = model.generated_refine_results(ori_img,ori_mask,coarse_input,target_mask,constrain_areas_strict,obj_label,guidance_scale=7.5,eta=1.0,contrast_beta = 1.67,
-                                                                   end_step = 0, num_step = 50, start_step = 25,use_mtsa = True,feature_injection=False,local_text_edit=True,local_ddpm=True,verbose=True, obj_label= obj_label)#add gen_res in input_pack
+                # generated_results,exp_target_mask = model.generated_refine_results(ori_img,ori_mask,coarse_input,target_mask,constrain_areas_strict,obj_label,guidance_scale=7.5,eta=1.0,contrast_beta = 1.67,
+                #                                                    end_step = 0, num_step = 50, start_step = 25,use_mtsa = True,feature_injection=False,local_text_edit=True,local_ddpm=True,verbose=True, obj_label= obj_label)#add gen_res in input_pack
+                generated_results = model.generated_refine_results(ori_img, ori_mask, coarse_input,
+                                                                                    target_mask, constrain_areas_strict,
+                                                                                    obj_label, guidance_scale=7.5,
+                                                                                    eta=1.0, contrast_beta=1.67,
+                                                                                    end_step=0, num_step=50,
+                                                                                    start_step=25, use_mtsa=True,
+                                                                                    feature_injection=False,
+                                                                                    local_text_edit=True,
+                                                                                    local_ddpm=True, verbose=True,
+                                                                                    obj_label=obj_label)  # add gen_res in input_pack
                 gen_img_path = save_img(generated_results, dst_dir_path_gen, da_n,ins_id,edit_ins)
-                tgt_mask_path = replace_mask(exp_target_mask,coarse_input_pack['tgt_mask_path'])
+                # tgt_mask_path = replace_mask(exp_target_mask,coarse_input_pack['tgt_mask_path'])
                 coarse_input_pack['gen_img_path'] = gen_img_path
                 current_ins[edit_ins] = coarse_input_pack
             instances[ins_id] = current_ins

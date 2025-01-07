@@ -255,7 +255,9 @@ def main(data_id, base_dir):
     if osp.exists(osp.join(dst_base, f"packed_data_full_INP_{data_id}.json")):
         print(f'expansion inpainting for {data_id} already finish!')
         return
-    dataset_json_file = osp.join(dst_base, f"packed_data_full_tag_{data_id}.json")
+    # dataset_json_file = osp.join(dst_base, f"packed_data_full_tag_{data_id}.json")
+    dataset_json_file = osp.join(dst_base, f"mask_tag_relabelled_lmm_{data_id}.json")
+
 
     data = load_json(dataset_json_file)
     inp_mode = 'sd'
@@ -320,6 +322,7 @@ def main(data_id, base_dir):
     assist_prompt = ['shadow', ]
     # omit_label_list = ['field','sky']
     # for da_n,da in tqdm(data.items(),desc='proceeding inpainting:'):
+    new_data = dict()
     for da_n, da in tqdm(data.items(), desc=f'Proceeding inpainting (data_parts {data_id})'):
 
         # da_n = '3' #378
@@ -330,43 +333,49 @@ def main(data_id, base_dir):
             print(f'skip {da_n} for not valid instance')
             continue
         image_path = da['src_img_path']
-        instances = da['instances']
-        if judge_exist(da_n,dst_dir_path_inp,instances):
-            instances['inp_img_path'] = [osp.join(dst_dir_path_inp, da_n,f"img_{id+1}.png") for id in range(len(instances['obj_label'])) ]
-            data[da_n]['instances'] = instances
-            print(f'skip {da_n} for already exist')
-            continue
-        try:
-            mask_list = [cv2.imread(path) for path in instances['mask_path']]  # load all masks
-            obj_label_list = instances['obj_label']
-            img = cv2.imread(image_path)  # bgr
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            # mask_list,obj_label_list,stat = filter_out_invalid_label(model,img,mask_list,obj_label_list)
-            # if not stat:
-            # TODO: 1.complete the obj parts and replace original mask
-            # TODO: 2.use semantic ca to get surroundings as exp mask，eg: shadow
-            expansion_mask_list, inpainting_imgs_list = model.expansion_and_inpainting_func(img, mask_list,
-                                                                                            obj_label_list,
-                                                                                            max_resolution=512,
-                                                                                            expansion_step=10,
-                                                                                            max_try_times=10,
-                                                                                            samples_per_time=5,
-                                                                                            assist_prompt=assist_prompt,
-                                                                                            mode=inp_mode,
-                                                                                            sem_expansion=True)
-            # mask_path = save_masks(expansion_mask_list, dst_dir_path_exp, da_n)
-            # instances['exp_mask_path'] = mask_path
+        instances_list = da['instances']
+        new_data[da_n] = da
+        new_data[da_n]['instances'] = []
+        for instances in instances_list:
+            level = instances['level']
+            level_dst_dir_path_inp = osp.join(dst_dir_path_inp,f'level{level}')
+            if judge_exist(da_n,level_dst_dir_path_inp,instances):
+                instances['inp_img_path'] = [osp.join(level_dst_dir_path_inp, da_n,f"img_{id+1}.png") for id in range(len(instances['obj_label'])) ]
+                instances['level'] = level
+                new_data[da_n]['instances'].append(instances)
+                print(f'skip level{level} {da_n} for already exist')
+                continue
+            try:
+                mask_list = [cv2.imread(path) for path in instances['mask_path']]  # load all masks
+                obj_label_list = instances['obj_label']
+                img = cv2.imread(image_path)  # bgr
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                # mask_list,obj_label_list,stat = filter_out_invalid_label(model,img,mask_list,obj_label_list)
+                # if not stat:
+                # TODO: 1.complete the obj parts and replace original mask
+                # TODO: 2.use semantic ca to get surroundings as exp mask，eg: shadow
+                expansion_mask_list, inpainting_imgs_list = model.expansion_and_inpainting_func(img, mask_list,
+                                                                                                obj_label_list,
+                                                                                                max_resolution=512,
+                                                                                                expansion_step=10,
+                                                                                                max_try_times=10,
+                                                                                                samples_per_time=5,
+                                                                                                assist_prompt=assist_prompt,
+                                                                                                mode=inp_mode,
+                                                                                                sem_expansion=True)
+                # mask_path = save_masks(expansion_mask_list, dst_dir_path_exp, da_n)
+                # instances['exp_mask_path'] = mask_path
 
-            # lama_inp_path = save_imgs(lama_inp_list, dst_dir_path_inp_lama, da_n)
-            # instances['lama_inp_img_path'] = lama_inp_path
-            if len(inpainting_imgs_list) > 0:  # if all filtered with no sd inpainting results
-                best_inp_path = save_imgs(inpainting_imgs_list, dst_dir_path_inp, da_n)
-                instances['inp_img_path'] = best_inp_path
-            data[da_n]['instances'] = instances  # add inp_img_path to data json
-        except Exception as e:
-            print(f"skip error case for: {e}")
-            model.controller.reset() #avoid
-            continue
+                # lama_inp_path = save_imgs(lama_inp_list, dst_dir_path_inp_lama, da_n)
+                # instances['lama_inp_img_path'] = lama_inp_path
+                if len(inpainting_imgs_list) > 0:  # if all filtered with no sd inpainting results
+                    best_inp_path = save_imgs(inpainting_imgs_list, level_dst_dir_path_inp, da_n)
+                    instances['inp_img_path'] = best_inp_path
+                new_data[da_n]['instances'].append(instances)  # add inp_img_path to data json
+            except Exception as e:
+                print(f"skip error case for: {e}")
+                model.controller.reset() #avoid
+                continue
     save_json(data, osp.join(dst_base, f"packed_data_full_INP_{data_id}.json"))
 
 if __name__ == "__main__":

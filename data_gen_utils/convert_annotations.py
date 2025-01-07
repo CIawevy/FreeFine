@@ -1,7 +1,6 @@
 import os
 import json
 import shutil
-import cv2
 import os.path as osp
 
 
@@ -189,32 +188,43 @@ json_path_list = [f"/data/Hszhu/dataset/PIE-Bench_v1/Subset_{i}/generated_datase
 # json_path_list.extend([f"/data/Hszhu/dataset/PIE-Bench_v1/Subset_unseen_{i}/generated_dataset_full_pack_v2.json" for i in range(2)])
 
 # 指定目标文件夹
-dest_dir = "/data/Hszhu/dataset/Gedi_full/"
+dest_dir = "/data/Hszhu/dataset/Edit-PIE/"
 
 # 调用函数
 # merge_and_copy_json_data(json_path_list, dest_dir)
 # merge_and_copy_json_data_v2(json_path_list, dest_dir)
 #print info
-data = load_json(osp.join(dest_dir,"annotations_full.json"))
-ip2p_anno = []
-i = 0
-retain_key = ['edit_prompt','ori_img_path','gen_img_path','gen_flow_path','ori_mask_path','tgt_mask_path']
-for img_id , instances in data.items():
-    for ins_id, pairs in instances.items():
-        for edit_id , meta in pairs.items():
-            keys_to_pop = [key for key in meta if key not in retain_key]
-            keys_to_pop = []
-            for key in keys_to_pop:
-                meta.pop(key)
-            ip2p_anno.append(meta)
-            i+=1
-print(f'data pair number:{i}')
-save_path = os.path.join(dest_dir, 'GeoEdit_annotations.json')
-# 将数据保存为 JSON 文件
-with open(save_path, 'w') as f:
-    json.dump(ip2p_anno, f, indent=4)  # indent 参数用于格式化输出，使文件更易读
-    print(f"数据已转换为IP2P格式，合并后的JSON文件路径: {save_path}")
-import os
+# full_data = load_json(osp.join(dest_dir,"annotations.json"))
+# full_save_path = os.path.join(dest_dir, 'GeoEdit_annotations.json')
+def json_convertor(data,save_path):
+    ip2p_anno = []
+    i = 0
+    retain_key = ['edit_prompt','ori_img_path','gen_img_path','gen_flow_path','ori_mask_path','tgt_mask_path','edit_param','obj_label','out_of_img_boundary']
+    for img_id , instances in data.items():
+        for ins_id, pairs in instances.items():
+            for edit_id , meta in pairs.items():
+                keys_to_pop = [key for key in meta if key not in retain_key]
+                keys_to_pop = []
+                for key in keys_to_pop:
+                    meta.pop(key)
+                ip2p_anno.append(meta)
+                i+=1
+    print(f'data pair number:{i}')
+    # 将数据保存为 JSON 文件
+    with open(save_path, 'w') as f:
+        json.dump(ip2p_anno, f, indent=4)  # indent 参数用于格式化输出，使文件更易读
+        print(f"数据已转换为IP2P格式，合并后的JSON文件路径: {save_path}")
 
+
+full_data = load_json(osp.join(dest_dir,"annotations.json"))
+full_save_path = os.path.join(dest_dir, 'GeoEdit_annotations_full.json')
+json_convertor(full_data,full_save_path)
+
+full_data = load_json(osp.join(dest_dir,"annotations_train.json"))
+full_save_path = os.path.join(dest_dir, 'GeoEdit_annotations_train.json')
+json_convertor(full_data,full_save_path)
+full_data = load_json(osp.join(dest_dir,"annotations_test.json"))
+full_save_path = os.path.join(dest_dir, 'GeoEdit_annotations_test.json')
+json_convertor(full_data,full_save_path)
 
 

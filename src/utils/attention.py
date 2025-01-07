@@ -389,7 +389,8 @@ def register_attention_control(model, controller):
             controller.upcast_softmax=self.upcast_softmax
             if place_in_unet in ['up'] and not is_cross and controller.share_attn:
             # if not is_cross and controller.share_attn:
-                hidden_states = controller.mutual_self_attention(query,key,value,is_cross, place_in_unet)
+            #     hidden_states = controller.mutual_self_attention(query,key,value,is_cross, place_in_unet)
+                hidden_states = controller.context_alignment_attention(query, key, value, is_cross, place_in_unet)
             elif controller.local_edit and is_cross:
                 hidden_states = controller.modulate_local_cross_attn(query,key,value,is_cross, place_in_unet)
             elif  place_in_unet in ['up'] and is_cross and controller.bidirectional_loc:#Expansion INV Process
@@ -836,14 +837,14 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         return (binary_image / 255).to(tensor.dtype)
     def between_steps(self):
         self.step_num += 1
-
-        if self.SDSA_REF_MASK is not None:
-            # Dropout ref mask for each step without gradients
-            with torch.no_grad():
-                # SDSA_REF_MASK_STEP = F.dropout(self.SDSA_REF_MASK, p=self.drop_out)
-                SDSA_REF_MASK_STEP = self.drop_block(self.SDSA_REF_MASK.unsqueeze(0).unsqueeze(0)).squeeze(0, 1)
-                SDSA_REF_MASK_STEP[SDSA_REF_MASK_STEP > 0] = 1
-                self.SDSA_REF_MASK_STEP = SDSA_REF_MASK_STEP
+        #SDSA codes
+        # if self.SDSA_REF_MASK is not None:
+        #     # Dropout ref mask for each step without gradients
+        #     with torch.no_grad():
+        #         # SDSA_REF_MASK_STEP = F.dropout(self.SDSA_REF_MASK, p=self.drop_out)
+        #         SDSA_REF_MASK_STEP = self.drop_block(self.SDSA_REF_MASK.unsqueeze(0).unsqueeze(0)).squeeze(0, 1)
+        #         SDSA_REF_MASK_STEP[SDSA_REF_MASK_STEP > 0] = 1
+        #         self.SDSA_REF_MASK_STEP = SDSA_REF_MASK_STEP
         if self.log_mask:
             if not hasattr(self, 'device'):
                 self.device = self.obj_mask.device
@@ -1063,7 +1064,7 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
 
         return attention_probs
 
-    def get_local_attention_scores(self, query, key, local_region_mask):
+    def get_local_attention_scores(self, query, key,value, local_region_mask):
         dtype = query.dtype
         if self.upcast_attention:
             query = query.float()
@@ -1089,24 +1090,12 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         #4,8,4224,77
         #[uncon_e,uncon_r,con_e,con_r]
         #["","","car",""]
-        local_region_mask[local_region_mask>0] = 1
-        _,L1,L2 = attention_scores.shape
-        attention_scores = attention_scores.view(-1,self.heads,L1,L2)
-        uncon_edit_qk = attention_scores[0].permute(1,2,0)#4227,77,heads
-        con_edit_qk = attention_scores[2].permute(1,2,0)#4227,77,heads
-        local_focus_qk = con_edit_qk * local_region_mask[:,None,None] + uncon_edit_qk * (1-local_region_mask[:,None,None])
-        local_focus_qk = local_focus_qk.permute(2,0,1)
-        attention_scores[2] = local_focus_qk
-        attention_scores = attention_scores.view(-1,L1,L2)
-        del uncon_edit_qk,con_edit_qk,local_focus_qk
 
 
-        attention_probs = attention_scores.softmax(dim=-1)
-        del attention_scores
 
-        attention_probs = attention_probs.to(dtype)
+        hidden_states = torch.bmm(attention_scores.softmax(dim=-1).to(dtype), value)
 
-        return attention_probs
+        return hidden_states
     def cross_attention_mask_log(self, attention_probs, local_region_mask, place_in_unet, attn_h, attn_w, d_ratio, local_focus_box):
         # attention_probs=attention_scores.softmax(dim=-2) #different from CA need to softmax on image dim
         if local_focus_box is not None:
@@ -1147,8 +1136,11 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         return attention_probs
 
 
-    def process_mask_before_mutual(self,mask,seq,skip_eight=False):
-        mask[mask>0] = 1
+    def process_mask_before_attention(self, mask, seq, skip_eight=False):
+        if mask.max() > 1:
+            m_dtype = mask.dtype
+            mask = (mask / mask.max()).to(m_dtype)
+
         # PROCESS MASK
         h, w = mask.shape
         d_ratio = 2**int(math.log2((h * w // seq) ** 0.5)+0.5)
@@ -1165,14 +1157,41 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         mask= mask.repeat(self.heads, 1, 1)
         return mask
 
+    def prepare_various_attention_mask(self, b, seq, value):
+        fg_retain_mask, d_ratio = self.process_mask_before_attention(self.fg_retain_mask, seq,skip_eight=False)
 
+        ref_mask_ori, _ = self.process_mask_before_attention(self.fg_ref_mask , seq, skip_eight=False)
+
+        fg_retain_mask = fg_retain_mask.flatten()[None,]
+
+
+        ref_mask = ref_mask_ori.flatten()
+        mask = torch.ones((seq, seq), dtype=value.dtype, device=value.device)
+        FG_mask = (mask * ref_mask[None,])[None,]
+        BG_mask = (mask * (1 - ref_mask)[None,])[None,]
+        mask = mask[None,]
+        # post process -inf
+        FG_mask = torch.cat((FG_mask, mask, FG_mask, mask))
+        BG_mask = torch.cat((BG_mask, mask, BG_mask, mask))
+        FG_mask = self.post_process_attn_mask(FG_mask)
+        BG_mask = self.post_process_attn_mask(BG_mask)
+        mask_ = torch.ones(fg_retain_mask.shape, dtype=value.dtype, device=value.device)
+        final_mask_fg = torch.cat((fg_retain_mask, mask_, fg_retain_mask, mask_)).repeat(self.heads, 1)
+        if self.stat == 'stage2':
+            fg_retain_mask_st2, _ = self.process_mask_before_attention(self.fg_retain_mask_st2, seq, skip_eight=False)
+            fg_retain_mask_st2 = fg_retain_mask_st2.flatten()[None,]
+            final_mask_fg_st2 = torch.cat((fg_retain_mask_st2, mask_, fg_retain_mask_st2, mask_)).repeat(self.heads, 1)
+        else:
+            final_mask_fg_st2 = None
+
+        return FG_mask, BG_mask, final_mask_fg, d_ratio,final_mask_fg_st2
     def prepare_mutual_attention_mask(self,b,seq,value):
-        edit_mask_ori,d_ratio = self.process_mask_before_mutual(self.obj_mask,seq)
+        edit_mask_ori,d_ratio = self.process_mask_before_attention(self.obj_mask, seq)
         # SDSA_REF_MASK_STEP = self.SDSA_REF_MASK
         # if self.SDSA_REF_MASK_STEP is not None:
         #     SDSA_REF_MASK_STEP = self.SDSA_REF_MASK_STEP
         # ref_mask_ori,_ = self.process_mask_before_mutual(SDSA_REF_MASK_STEP,seq)
-        ref_mask_ori,_ = self.process_mask_before_mutual(self.SDSA_REF_MASK,seq,skip_eight=True)
+        ref_mask_ori,_ = self.process_mask_before_attention(self.SDSA_REF_MASK, seq, skip_eight=True)
         edit_mask = edit_mask_ori.flatten()[None,]
         ref_mask = ref_mask_ori.flatten()
         mask = torch.ones((seq, seq), dtype=value.dtype,device=value.device)
@@ -1340,6 +1359,45 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
             self.between_steps()
         return hidden_states
 
+    def context_alignment_attention(self, query, key, value, is_cross, place_in_unet):
+        batch_size, sequence_length, _ = (
+            query.shape
+        )
+        query = self.head_to_batch_dim(query)
+        key = self.head_to_batch_dim(key)
+        value = self.head_to_batch_dim(value)
+
+        if self.cur_att_layer // 2 not in self.layer_idx:
+            hidden_states = self.mask_attention(query, key, value, None)
+            self.cur_att_layer += 1
+            if self.cur_att_layer == self.num_att_layers + self.num_uncond_att_layers:
+                self.cur_att_layer = 0
+                self.cur_step += 1
+                self.between_steps()
+            return self.batch_to_head_dim(hidden_states)
+
+        cross_key = self.cross_manner_attention_modulate(key)  # Kr -> Ke ->:Replace
+        cross_value = self.cross_manner_attention_modulate(value)  # Vr -> Ve
+        # /16 do mutual self attn
+        # prepare BG FG attn mask
+        src_FG_mask, src_BG_mask, tgt_FG_mask, d_ratio,tgt_FG_mask_st2 = self.prepare_various_attention_mask(batch_size, sequence_length, value)
+        attn_out_fg = self.mask_attention(query, cross_key, cross_value, src_FG_mask)
+        attn_out_bg = self.mask_attention(query, cross_key, cross_value, src_BG_mask)
+        if self.stat=='stage1':
+            hidden_states = tgt_FG_mask[:, :, None] * attn_out_fg + (1-tgt_FG_mask)[:, :, None] * attn_out_bg
+        elif self.stat =='stage2':
+            tgt_FG_mask[tgt_FG_mask>0] = 1
+            ref_hidden_states = tgt_FG_mask_st2[:, :, None] * attn_out_fg + (1 - tgt_FG_mask)[:, :, None] * attn_out_bg
+            self_hidden_states = self.mask_attention(query, key, value, None)
+            hidden_states = self_hidden_states*(1-self.context_guidance) + ref_hidden_states*self.context_guidance
+            # hidden_states = self_hidden_states * (tgt_FG_mask-tgt_FG_mask_st2)[:, :, None] + ref_hidden_states
+        hidden_states = self.batch_to_head_dim(hidden_states)
+        self.cur_att_layer += 1
+        if self.cur_att_layer == self.num_att_layers + self.num_uncond_att_layers:
+            self.cur_att_layer = 0
+            self.cur_step += 1
+            self.between_steps()
+        return hidden_states
 
     def loc_cross_attn_mask_expansion(self, query, key, value, is_cross, place_in_unet):
         #[uncon_assist,con_assist]
@@ -1386,17 +1444,23 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         attn_h, attn_w = self.get_down_h_w(d_ratio, h, w,sequence_length)
         # down sample
         local_region = F.interpolate(local_region.unsqueeze(0).unsqueeze(0), size=(attn_h,attn_w),
-                                 mode='nearest').squeeze(0, 1).flatten()
-
+                                 mode='nearest').squeeze(0, 1)
+        local_region  = local_region.flatten()
+        # local_region[local_region > 0] = 1
         query = self.head_to_batch_dim(query)
         key = self.head_to_batch_dim(key)
         value = self.head_to_batch_dim(value)
 
-        attention_probs = self.get_local_attention_scores(query, key,local_region)
+        hidden_states = self.get_local_attention_scores(query, key,value,local_region)
 
-        hidden_states = torch.bmm(attention_probs, value)
         hidden_states = self.batch_to_head_dim(hidden_states)
-        del attention_probs
+        _, L1, L2 = hidden_states.shape #4,4096,320 [uncon_edit,uncon_ref,con_edit,con_ref]
+        uncon_edit,uncon_ref,con_edit,_ = hidden_states
+        modified_con_edit = local_region[:,None]*con_edit+(1-local_region)[:,None]*uncon_edit
+        hidden_states = torch.stack([uncon_edit,uncon_ref,modified_con_edit,uncon_ref],dim=0)
+
+
+
         self.cur_att_layer += 1
         if self.cur_att_layer == self.num_att_layers + self.num_uncond_att_layers:
             self.cur_att_layer = 0
@@ -1483,10 +1547,10 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         self.use_cfg=False
         self.share_attn=False
         self.local_edit=False
-        self.SDSA_EDIT_MASK = None #on the fly
-        self.SDSA_REF_MASK = None
-        self.SDSA_REF_MASK_STEP = None
-        self.obj_mask =None
+        self.fg_retain_mask = None
+        self.fg_ref_mask = None
+        self.obj_mask=None
+        self.local_edit_region = None
         self.drop_out = drop_rate
         self.drop_block = MaskDropBlock(block_size, drop_rate)
         self.DIFT_FEATURE_INJ = False
@@ -1498,6 +1562,8 @@ class Mask_Expansion_SELF_ATTN(AttentionControl):
         self.forbit_expand_area=None
         self.assist_len=None
         self.is_locating=False
+        self.stat = None
+        self.context_guidance= None
         # MODEL_TYPE = {
         #     "SD": 16,
         #     "SDXL": 70

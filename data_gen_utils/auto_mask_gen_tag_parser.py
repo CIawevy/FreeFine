@@ -1,6 +1,3 @@
-import cv2
-import numpy as np
-import supervision as sv
 from typing import List
 from PIL import Image
 import os
@@ -10,14 +7,10 @@ import torch
 import spacy
 import sys
 
-
-
 sys.path.append('/data/Hszhu/Reggio')
 from torchvision.transforms import ToTensor
 from groundingdino.util.inference import Model
-from segment_anything import sam_model_registry, SamPredictor
 from sam.efficient_sam import build_efficient_sam_vits
-from data_gen_utils.blip2 import  BLIP2
 import nltk
 import clip
 import argparse
@@ -333,6 +326,58 @@ def tiny_filter(mask,tiny_thr):
     image_size = img_width*img_height
     area_ratio = mask.sum() / image_size
     return area_ratio < tiny_thr
+
+
+def Tiny_filter(detections, tiny_thr=0.10):
+    xyxy = detections.xyxy
+    class_id = detections.class_id
+    masks = detections.mask.astype(np.uint8)
+    masks[masks > 0] = 1
+    confidences = detections.confidence
+
+    keep_masks = []
+    keep_confidences = []
+    keep_ids = []
+    keep_xyxy = []
+
+    # all_pixel = mask.shape[0] * mask.shape[1]
+    # mask_areas = np.sum(masks, axis=(1, 2)) / all_pixel
+    # sorted_idx = np.argsort(-(mask_areas + confidences))
+    # masks = masks[sorted_idx]
+    # confidences = confidences[sorted_idx]
+    # class_id = class_id[sorted_idx]
+    # xyxy = xyxy[sorted_idx]
+
+    while len(masks) > 0:
+        current_mask = masks[0]
+        current_confidence = confidences[0]
+        current_id = class_id[0]
+        current_xyxy = xyxy[0]
+
+        # 仅保留较小物体的过滤逻辑
+        if tiny_filter(current_mask, tiny_thr):
+            masks = masks[1:]
+            confidences = confidences[1:]
+            class_id = class_id[1:]
+            xyxy = xyxy[1:]
+            continue
+
+        keep_masks.append(current_mask)
+        keep_confidences.append(current_confidence)
+        keep_ids.append(current_id)
+        keep_xyxy.append(current_xyxy)
+
+        masks = masks[1:]
+        confidences = confidences[1:]
+        class_id = class_id[1:]
+        xyxy = xyxy[1:]
+
+    detections.xyxy = np.array(keep_xyxy)
+    detections.mask = np.array(keep_masks)
+    detections.class_id = np.array(keep_ids)
+    detections.confidence = np.array(keep_confidences)
+
+    return detections
 def Clawer_masks_post_filter(model, img, detections, AUTOMATIC_CLASSES,mask, subordinate_thr=0.8, edge_thr=0.5, tiny_thr=0.05):
     xyxy = detections.xyxy
     class_id = detections.class_id
@@ -670,6 +715,7 @@ def main(data_id, base_dir):
     BOX_THRESHOLD = 0.3
     TEXT_THRESHOLD = 0.3
     IOU_THRESHOLD = 0.7
+    MAX_INSTANCES = 10
 
     # Building GroundingDINO inference model
     grounding_dino_model = Model(model_config_path=GROUNDING_DINO_CONFIG_PATH,
@@ -712,12 +758,12 @@ def main(data_id, base_dir):
     tag2text_model.threshold = TAG2TEXT_THRESHOLD
     tag2text_model.eval()
     tag2text_model = tag2text_model.to(DEVICE)
-    omit_list = ['photo', 'eye', 'rock', 'dress', 'hand', 'hair', 'couple', 'mountain', 'lake', 'wall']
+    omit_list = ['photo', 'eye', 'rock', 'dress', 'couple', 'wall','ear','sky']
     dst_dir_path = osp.join(dst_base, "masks_tag/")
     new_data = dict()
     dataset_json_file = osp.join(base_dir, "meta_data.json")
     data = load_json(dataset_json_file)  # load img paths
-    data_parts = split_data(data, 4, seed=42, subset_num=100000)
+    data_parts = split_data(data, 8, seed=42, subset_num=80000)
 
     for da_n, da in tqdm(data_parts[data_id].items(), desc=f'procedding GroundingSAM Part:{data_id}'):
         try:
@@ -766,19 +812,22 @@ def main(data_id, base_dir):
 
             detections.mask = np.array(result_masks)
 
-            detections = Clawer_masks_post_filter(grounding_dino_model, image, detections, AUTOMATIC_CLASSES,mask,
-                                                  subordinate_thr=0.8, edge_thr=0.7, tiny_thr=0.01)
+            # detections = clawer_masks_post_filter(grounding_dino_model, image, detections, AUTOMATIC_CLASSES,mask,
+            #                                       subordinate_thr=0.8, edge_thr=0.7, tiny_thr=0.01)
+            detections = Tiny_filter(detections,tiny_thr=0.10)
 
             labels = [
                 f"{AUTOMATIC_CLASSES[class_id]}"
                 for class_id, confidence in zip(detections.class_id, detections.confidence)
             ]
+            if len(labels) == 0 or len(labels) > MAX_INSTANCES:
+                print(f'skip for {len(labels)} in img_id:{da_n}')
+                continue
 
             annotated_image = my_annotate_image(image.copy(), detections, labels)
             mask_path = save_masks(detections.mask, dst_dir_path, da_n)
 
-            if len(mask_path) == 0:
-                continue
+
 
             cv2.imwrite(os.path.join(osp.dirname(mask_path[0]), f"anotated_img.png"), annotated_image)
 

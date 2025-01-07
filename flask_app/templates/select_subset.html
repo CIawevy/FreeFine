@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Select Subset</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/css/bootstrap.min.css">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            position: relative;
+        }
+        .container {
+            margin-top: 30px;
+        }
+        .subset-row {
+            border-bottom: 1px solid #dee2e6;
+            padding: 15px 0;
+        }
+        .subset-row:last-child {
+            border-bottom: none;
+        }
+        .subset-header {
+            margin-bottom: 20px;
+        }
+        .progress-bar {
+            height: 20px;
+        }
+        .user-contribution {
+            font-size: 0.9em;
+            margin-top: 5px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .user-contribution span {
+            display: flex;
+            align-items: center;
+        }
+        .user-contribution span::before {
+            content: '';
+            display: inline-block;
+            width: 15px;
+            height: 15px;
+            margin-right: 5px;
+            border-radius: 50%;
+            background-color: currentColor;
+        }
+        .copyright {
+            position: fixed; /* 改为 fixed，确保它始终位于屏幕的固定位置 */
+            top: 10px;
+            right: 10px;
+            font-size: 0.9rem;
+            color: #6c757d;
+            z-index: 9999; /* 保证版权信息位于页面最顶层 */
+        }
+        .copyright a {
+            text-decoration: none;
+            color: #6c757d;
+        }
+        .copyright a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="copyright">
+        © 2024 <a href="https://github.com/CIawevy/flask_app" target="_blank">Clawer</a>. All rights reserved.
+    </div>
+
+    <div class="container">
+        <!-- Page Title -->
+        <h1 class="subset-header">Select Subset for {{ username }}</h1>
+
+        <!-- Logout Form -->
+        <form action="{{ url_for('select_subset', username=username) }}" method="POST" class="mb-4">
+            <button type="submit" name="action" value="logout" class="btn btn-danger">Logout</button>
+        </form>
+
+        <!-- Subsets List -->
+        <div>
+            {% for subset in progress_stat %}
+                <div class="row subset-row align-items-center">
+                    <!-- Subset ID -->
+                    <div class="col-2 text-center">
+                        <h5>Subset {{ subset.subset_id }}</h5>
+                    </div>
+
+                    <!-- Status -->
+                    <div class="col-2 text-center">
+                        <p class="mb-0"><strong>Status:</strong> {{ subset.status }}</p>
+                    </div>
+
+                    <!-- User -->
+                    <div class="col-2 text-center">
+                        <p class="mb-0"><strong>User:</strong> {{ subset.user }}</p>
+                    </div>
+
+                    <!-- Progress Bar -->
+                    <div class="col-4">
+                        <div class="progress">
+                            {% if subset.progress > 0 %}
+                                {% for user, contribution in contributions_data.get(subset.subset_id, {}).items() %}
+                                    <div class="progress-bar" role="progressbar"
+                                         style="width: {{ (contribution / 100) * 100 }}%; background-color: {{ user_indices[user] | random_color }};"
+                                         aria-valuenow="{{ contribution }}"
+                                         aria-valuemin="0"
+                                         aria-valuemax="100">
+                                    </div>
+                                {% endfor %}
+                            {% else %}
+                                <div class="progress-bar bg-secondary" style="width: 100%;">
+                                    No contributions yet
+                                </div>
+                            {% endif %}
+                        </div>
+                        <!-- User Contribution List -->
+                        <div class="user-contribution">
+                            {% for user, contribution in contributions_data.get(subset.subset_id, {}).items() %}
+                                <span style="color: {{ user_indices[user] | random_color }};">
+                                     {{ user }}: {{ '%.2f' | format(contribution) }}%
+                                </span>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <!-- Select Button -->
+                    <div class="col-2 text-center">
+                        {% if subset.is_disabled %}
+                            <button class="btn btn-secondary" disabled>In Progress</button>
+                        {% else %}
+                            <form action="{{ url_for('select_subset', username=username) }}" method="POST">
+                                <input type="hidden" name="subset_id" value="{{ subset.subset_id }}">
+                                <button type="submit" name="action" value="select" class="btn btn-primary">Select</button>
+                            </form>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Mask Filter</title>
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            background-color: #f4f4f9;
+            position: relative;
+        }
+        h1 { font-size: 28px; margin-bottom: 10px; }
+        h2 { font-size: 22px; margin-bottom: 10px; }
+        h3 { font-size: 20px; margin-bottom: 10px; }
+        p { font-size: 20px; margin-bottom: 20px; line-height: 1.8; text-align: center; }
+        .image-container {
+            display: flex;
+            flex-direction: row;
+            justify-content: center;
+            gap: 20px;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .image-container img {
+            margin: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            width: 300px;
+            transition: transform 0.3s ease;
+        }
+        .zoomable {
+            vertical-align: top;
+            object-fit: contain;
+            max-height: 300px;
+            margin: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .zoomable.expanded {
+            transform: scale(1.5);
+            z-index: 10;
+        }
+
+        .button-container { display: flex; justify-content: center; gap: 15px; }
+        button { padding: 15px 25px; font-size: 18px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; transition: background-color 0.3s ease; }
+        button:hover { background-color: #45a049; }
+        button:disabled { background-color: #ddd; cursor: not-allowed; }
+
+        /* 修改标签显示样式 */
+        .object-label-container {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .object-label, .chinese-label {
+            font-size: 18px;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease, color 0.3s ease;
+            text-align: center;
+        }
+        .object-label {
+            background-color: #ff5722;
+            color: white;
+        }
+        .chinese-label {
+            background-color: #2196F3;
+            color: white;
+        }
+        .selected {
+            background-color: #4CAF50 !important;
+            color: white !important;
+        }
+        .instructions-title { text-align: center; font-size: 22px; margin-bottom: 10px; }
+        .instructions { font-size: 20px; text-align: left; margin-top: 10px; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <h1>Mask Filter for Subset {{ subset_id }}</h1>
+    <p>欢迎, <strong>{{ username }}</strong>, 来到掩码数据过滤平台！在这里，您可以高效地筛选和处理掩码数据。</p>
+
+    <div class="instructions">
+        <h2 class="instructions-title">使用指南：</h2>
+        <ul>
+            <li>1. 点击"Skip"跳过错误标签。</li>
+            <li>2. 点击"Keep"保留该实例。</li>
+            <li>3. 使用"Undo"撤回上一步操作。</li>
+            <li>4. 使用“Back”回到上一页面。</li>
+            <li>5. 允许修改标签</li>
+        </ul>
+    </div>
+
+    <!-- 标签展示区域 -->
+    <div class="object-label-container">
+        {% for i in range(len(instance.label)) %}
+            <div class="object-label" id="label-{{ i }}" onclick="selectLabel({{ i }})">
+                {{ instance.label[i] }} | {{ instance.chinese_labels[i] }}
+            </div>
+        {% endfor %}
+    </div>
+
+    <div class="image-container">
+        <div style="text-align: center;">
+            <img src="data:image/png;base64,{{ instance.ori_img | b64encode }}"
+                 alt="Original Image" class="zoomable" ondblclick="toggleZoom(this)">
+        </div>
+        <div style="text-align: center;">
+            <img src="data:image/png;base64,{{ instance.crop_img | b64encode }}"
+                 alt="Masked Image" class="zoomable" ondblclick="toggleZoom(this)">
+        </div>
+    </div>
+
+
+
+    <!-- 表单 -->
+    <form method="POST">
+        <!-- 隐藏表单字段用于传递选择的标签ID -->
+        <input type="hidden" id="selected-label-id" name="selected_label_id" value="0">
+        <div class="button-container">
+            <button type="submit" name="decision" value="keep">保留 (Keep)</button>
+            <button type="submit" name="decision" value="skip">跳过 (Skip)</button>
+            <button type="submit" name="decision" value="undo" {% if disable_undo %}disabled{% endif %}>撤回 (Undo)</button>
+            <button type="submit" name="decision" value="Back">返回 (Back)</button>
+        </div>
+    </form>
+
+    <script>
+        let timeout;
+
+        function toggleZoom(imgElement) {
+            imgElement.classList.toggle('expanded');
+        }
+
+          // 标签选择功能
+        function selectLabel(labelId) {
+            // 移除所有标签的选中状态
+            const labels = document.querySelectorAll('.object-label');
+            labels.forEach(label => label.classList.remove('selected'));
+
+            // 为当前点击的标签添加选中状态
+            const selectedLabel = document.getElementById(`label-${labelId}`);
+            selectedLabel.classList.add('selected');
+
+            // 更新隐藏的input值
+            document.getElementById('selected-label-id').value = labelId;
+            console.log('Selected label ID:', labelId);
+        }
+
+        // 初始化时选择第一个标签
+        window.onload = function() {
+            selectLabel(0);  // 默认选中第一个标签
+        };
+
+        // 监听用户活动并重置超时计时
+        function resetTimeout() {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => {
+                let username = document.getElementById('username').value;
+
+                fetch(`/logout/${username}`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                })
+                .then(response => {
+                    if (response.status === 302 || response.status === 301 || response.redirected) {
+                        window.location.replace(response.url);
+                    }
+                })
+                .catch(error => {
+                    console.error('Logout error:', error);
+                });
+            }, 10 * 60 * 1000);
+        }
+
+        document.addEventListener('mousemove', resetTimeout);
+        document.addEventListener('keydown', resetTimeout);
+
+        resetTimeout();
+    </script>
+</body>
+</html>

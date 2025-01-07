@@ -148,6 +148,8 @@ def merge_and_copy_json_data_v2(json_path_list, dest_dir):
                 # 遍历每个实例
                 for img_id, instances in data.items():
                     new_instance = dict()
+
+                    caption = instances['blip2_caption']
                     for ins_id , edits in instances['instances'].items():
                         operations_per_ins = dict()
                         for case_id, gt_datas in edits.items():
@@ -163,11 +165,16 @@ def merge_and_copy_json_data_v2(json_path_list, dest_dir):
                                 ori_mask_path = copy_data(gt_datas['ori_mask_path'], source_mask_dir, img_id, ins_id, case_id,is_mask=True)
                                 tgt_mask_path = copy_data(gt_datas['tgt_mask_path'], target_mask_dir, img_id, ins_id, case_id,is_mask=True)
                                 new_case['edit_prompt'] = gt_datas['edit_prompt']
-                                new_case['tag_caption'] = gt_datas['tag_caption']
+                                new_case['edit_param'] = gt_datas['edit_param']
+                                # new_case['tag_caption'] = gt_datas['tag_caption']
                                 new_case['ori_img_path'] = ori_img_path
                                 new_case['gen_img_path'] = gen_img_path
                                 new_case['ori_mask_path'] = ori_mask_path
                                 new_case['tgt_mask_path']= tgt_mask_path
+                                new_case['obj_label'] = gt_datas['obj_label']
+                                new_case['blip2_caption'] = caption
+                                if 'out_of_img_boundary' in gt_datas:
+                                    new_case['out_of_img_boundary'] = gt_datas['out_of_img_boundary']
 
                             operations_per_ins[case_id] = new_case #保留命令
                         if len(operations_per_ins) > 0 :
@@ -185,15 +192,15 @@ def merge_and_copy_json_data_v2(json_path_list, dest_dir):
     save_json(merged_data,merged_json_path)
     print(f"数据已合并并复制，合并后的JSON文件路径: {merged_json_path}")
 # 使用的JSON路径列表
-json_path_list = [f"/data/Hszhu/dataset/PIE-Bench_v1/Subset_{i}/generated_dataset_full_pack_{i}.json" for i in range(4)]
+# json_path_list = [f"/data/Hszhu/dataset/PIE-Bench_v1/Subset_{i}/generated_dataset_full_pack_{i}.json" for i in range(4)]
+json_path_list = [f"/data/Hszhu/dataset/PIE-Bench_v1/Subset_{i}/final_filtered_{i}.json" for i in range(4)]
 # json_path_list.extend([f"/data/Hszhu/dataset/PIE-Bench_v1/Subset_unseen_{i}/generated_dataset_full_pack_v2.json" for i in range(2)])
 
 # 指定目标文件夹
-dest_dir = "/data/Hszhu/dataset/Gedi_full/"
+dest_dir = "/data/Hszhu/dataset/Edit-PIE/"
 
 # 调用函数
-# merge_and_copy_json_data(json_path_list, dest_dir)
-# merge_and_copy_json_data_v2(json_path_list, dest_dir)
+merge_and_copy_json_data_v2(json_path_list, dest_dir)
 #print info
 data = load_json(osp.join(dest_dir,"annotations.json"))
 ins_length = np.array([len(v.keys()) for k,v in data.items()])

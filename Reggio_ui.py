@@ -6,7 +6,7 @@ from simple_lama_inpainting import SimpleLama
 from lama import lama_with_refine
 from src.demo.demo import create_my_demo_full_3D_magic
 from src.demo.demo_v2 import create_my_demo_full_SV3D_magic,create_my_demo_full_SV3D_multi_obj_case,create_my_demo_full_2D_magic
-from src.demo.model import ClawerModels,ClawerModel_v2
+from src.demo.src_model import ClawerModels,ClawerModel_v2
 from src.unet.unet_2d_condition import DragonUNet2DConditionModel
 import torch
 import cv2
