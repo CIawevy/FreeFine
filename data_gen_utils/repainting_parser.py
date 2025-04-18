@@ -203,8 +203,7 @@ def get_constrain_areas(mask_list_path):
 
 def prepare_mask_pool(instances):
     mask_pool = []
-    for i in range(len(instances)):
-        ins = instances[str(i)]
+    for i,ins in instances.items():
         if len(ins) == 0:
             continue
 
@@ -223,7 +222,7 @@ def main(data_id, base_dir):
     dataset_json_file = osp.join(dst_base,f"coarse_input_full_pack_{data_id}.json")
 
     data = load_json(dataset_json_file)
-    # data_parts = split_data(data, 2 , seed=42)
+    data = split_data(data, 1 , seed=42,subset_num=min(len(data),50))[0]
 
 
     device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
@@ -285,21 +284,26 @@ def main(data_id, base_dir):
                 coarse_input = cv2.imread(coarse_input_pack['coarse_input_path'])  # bgr
                 coarse_input = cv2.cvtColor( coarse_input , cv2.COLOR_BGR2RGB)
                 ori_mask = cv2.resize(ori_mask,dsize = target_mask.shape[:2],interpolation=cv2.INTER_NEAREST)
+                draw_mask = np.zeros_like(ori_mask)
 
                 # generated_results,exp_target_mask = model.generated_refine_results(ori_img,ori_mask,coarse_input,target_mask,constrain_areas_strict,obj_label,guidance_scale=7.5,eta=1.0,contrast_beta = 1.67,
                 #                                                    end_step = 0, num_step = 50, start_step = 25,use_mtsa = True,feature_injection=False,local_text_edit=True,local_ddpm=True,verbose=True, obj_label= obj_label)#add gen_res in input_pack
-                generated_results = model.generated_refine_results(ori_img, ori_mask, coarse_input,
-                                                                                    target_mask, constrain_areas_strict,
-                                                                                    obj_label, guidance_scale=7.5,
-                                                                                    eta=1.0, contrast_beta=1.67,
-                                                                                    end_step=0, num_step=50,
-                                                                                    start_step=25, use_mtsa=True,
-                                                                                    feature_injection=False,
-                                                                                    local_text_edit=True,
-                                                                                    local_ddpm=True, verbose=True,
-                                                                                    obj_label=obj_label)  # add gen_res in input_pack
+                generated_results = model.Reggio_refine_generation(ori_img, ori_mask, coarse_input,
+                                                                   target_mask,
+                                                                   "", guidance_scale=7.5,
+                                                                   eta=1.0, contrast_beta=1.67,
+                                                                   end_step=50, num_step=50,
+                                                                   start_step=25, use_mtsa=True,
+                                                                   local_text_edit=False,
+                                                                   local_ddpm=True, verbose=True,
+                                                                   return_ori=False, seed=42, draw_mask=draw_mask,
+                                                                   use_gs=False, gs_scale=2.4,
+                                                                   return_intermediates=False,
+                                                                   context_guidance=1.0, use_auto_draw=True,
+                                                                   cons_area=constrain_areas_strict
+                                                                   )  # add gen_res in input_pack
+
                 gen_img_path = save_img(generated_results, dst_dir_path_gen, da_n,ins_id,edit_ins)
-                # tgt_mask_path = replace_mask(exp_target_mask,coarse_input_pack['tgt_mask_path'])
                 coarse_input_pack['gen_img_path'] = gen_img_path
                 current_ins[edit_ins] = coarse_input_pack
             instances[ins_id] = current_ins

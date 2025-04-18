@@ -14,7 +14,7 @@ def process_drawing(drawing):
 
     # 创建单通道掩膜图像并保存，确保是L模式（单通道灰度图）
     mask_image = Image.fromarray(mask_array * 255, mode="L")  # 使用 "L" 模式来确保单通道
-    save_path = "draw_mask2.png"
+    save_path = "/data/Hszhu/dataset/vis/draw_mask_penguin.png"
     mask_image.save(save_path)  # 保存为PNG格式（单通道）
 
     # 返回处理后的掩膜图像（单通道）
@@ -55,14 +55,14 @@ def load_json(file_path):
     return None
 
 
-data = load_json("/data/Hszhu/dataset/PIE-Bench_v1/Subset_0/coarse_input_full_pack_0.json")
-da_n = '102'
-da = data[da_n]
-instances = da['instances']
-edit_meta = instances['0']
-coarse_input_pack = edit_meta['0']
+# data = load_json("/data/Hszhu/dataset/PIE-Bench_v1/Subset_0/coarse_input_full_pack_0.json")
+# da_n = '27'
+# da = data[da_n]
+# instances = da['instances']
+# edit_meta = instances['0']
+# coarse_input_pack = edit_meta['7']
 # 定义图像路径
-image_path = coarse_input_pack['coarse_input_path']
+image_path = "/data/Hszhu/dataset/vis/coarse_input/27/0/coarse_7.png"
 
 # 创建并启动 Gradio UI
 ui = create_ui(image_path)

@@ -69,9 +69,25 @@ def add_src_img_path(i,dst_base):
 # print('finish')
 
 # add_src_img_path_sp(1,dst_base)
-def add_caption(i,dst_base):
-    src_source = osp.join(dst_base,f"Subset_{i}/mask_tag_relabelled_lmm_v2_{i}.json")
-    tgt_path = osp.join(dst_base, f"Subset_{i}/mask_label_filtered_{i}.json")
+# def add_caption(i,dst_base):
+#     src_source = osp.join(dst_base,f"Subset_{i}/mask_tag_relabelled_lmm_v2_{i}.json")
+#     tgt_path = osp.join(dst_base, f"Subset_{i}/mask_label_filtered_{i}.json")
+#     # tgt_path = osp.join(dst_base, f"Subset_{i}/mat_fooocus_inpainting_{i}.json")
+#     src_data = load_json(src_source)
+#     meta = load_json(tgt_path)
+#     new_meta = {}
+#     for da_n,da in meta.items():
+#         print(da_n)
+#         if 'instances' not in da:
+#             # del meta[da_n]
+#             continue
+#         new_meta[da_n] = da
+#         new_meta[da_n].update({"src_img_path": src_data[da_n]["src_img_path"]})
+#         new_meta[da_n].update({"4v_caption": src_data[da_n]["4v_caption"]})
+#     save_json(new_meta,tgt_path)
+def add_caption_2(i,dst_base):
+    src_source = "/data/Hszhu/dataset/Geo-Bench/annotations.json"
+    tgt_path = "/data/Hszhu/dataset/Geo-Bench/generated_results.json"
     # tgt_path = osp.join(dst_base, f"Subset_{i}/mat_fooocus_inpainting_{i}.json")
     src_data = load_json(src_source)
     meta = load_json(tgt_path)
@@ -82,11 +98,11 @@ def add_caption(i,dst_base):
             # del meta[da_n]
             continue
         new_meta[da_n] = da
-        new_meta[da_n].update({"src_img_path": src_data[da_n]["src_img_path"]})
+        new_meta[da_n].update({"type": src_data[da_n]["type"]})
         new_meta[da_n].update({"4v_caption": src_data[da_n]["4v_caption"]})
     save_json(new_meta,tgt_path)
-dst_base = "/data/Hszhu/dataset/Subjects200K"
+dst_base = "/data/Hszhu/dataset/Geo-Bench"
 for i in tqdm(range(4)):
-    add_caption(i,dst_base)
+    add_caption_2(i,dst_base)
 print('finish')
 

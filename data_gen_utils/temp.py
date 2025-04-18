@@ -6,6 +6,9 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
+
+from copy import deepcopy
+
 operations = {
     "move": {
         "descriptions": ["Move", "Shift", "Slide", "Drag"],
@@ -199,21 +202,21 @@ def temp_view_img(image: Image.Image, title: str = None) -> None:
 #             if edit_id not in valid_ins_edit_id_list:
 #                 del ins_data[edit_id]
 # save_json(data,json_path)
-json_path_list = [f"/data/Hszhu/dataset/Subjects200K/Subset_{i}/mask_label_filtered_{i}.json" for i in range(4)]
-img_num=0
-ins_num=0
-for file in json_path_list:
-    data = load_json(file)
-    for da_n,da in data.items():
-        if 'instances' not in da:
-            print(f'skip no instances {da_n}')
-            continue
-        img_num+=1
-        ins_num+=len(da['instances']['obj_label'])
-print(f'final img num {img_num} ins num {ins_num}')
-print(f'final img num {img_num} ')
+# json_path_list = [f"/data/Hszhu/dataset/Subjects200K/Subset_{i}/mask_label_filtered_{i}.json" for i in range(4)]
+# img_num=0
+# ins_num=0
+# for file in json_path_list:
+#     data = load_json(file)
+#     for da_n,da in data.items():
+#         if 'instances' not in da:
+#             print(f'skip no instances {da_n}')
+#             continue
+#         img_num+=1
+#         ins_num+=len(da['instances']['obj_label'])
+# print(f'final img num {img_num} ins num {ins_num}')
+# print(f'final img num {img_num} ')
 # new_meta = {}
-# s_data = load_json("/data/Hszhu/dataset/Subjects200K/meta_data_unique.json")
+
 # cat_info={}
 # cat_num=0
 # class_num=0
@@ -246,51 +249,170 @@ def classify_edit_prompt(edit_prompt, degrees):
             if description in edit_prompt.lower():  # 转为小写匹配
                 return level
     return 'unknown'
-
-# 定义 degrees 字典
-degrees = {
-    "level_1": {
-        "description": ["lightly", "slightly", "gently", "mildly"]
-    },
-    "level_2": {
-        "description": ["moderately", "markedly", "appreciably"]
-    },
-    "level_3": {
-        "description": ["heavily", "intensely", "significantly", "strongly"]
+if __name__ == '__main__':
+    # 定义 degrees 字典
+    degrees = {
+        "level_1": {
+            "description": ["lightly", "slightly", "gently", "mildly"]
+        },
+        "level_2": {
+            "description": ["moderately", "markedly", "appreciably"]
+        },
+        "level_3": {
+            "description": ["heavily", "intensely", "significantly", "strongly"]
+        }
     }
-}
-# level_counts_3d = {"level_1": 0, "level_2": 0, "level_3": 0, "unknown": 0}
-# level_counts_2d = {"level_1": 0, "level_2": 0, "level_3": 0, "unknown": 0}
-# json_path_list = [f"/data/Hszhu/dataset/PIE-Bench_v1/Subset_{i}/coarse_input_full_pack_{i}.json" for i in range(4)]
-# img_num=0
-# ins_num=0
-# for file in json_path_list:
-#     data = load_json(file)
-#     for da_n,da in data.items():
-#         if 'instances' not in da:
-#             print(f'skip no instances {da_n}')
-#             continue
-#         ins_data = da['instances']
-#         for ins_id ,ins in ins_data.items():
-#             for case_id, gt_data in ins.items():
-#                 edit_prompt = gt_data.get('edit_prompt', '')
-#                 edit_type = '3d' if 'y-axis' in edit_prompt else '2d'
-#                 level = classify_edit_prompt(edit_prompt, degrees)
-#                 if edit_type =='3d':
-#                     level_counts_3d[level]+=1
-#                 else:
-#                     level_counts_2d[level]+=1
-#
-#
-# # 输出统计结果
-# print(f"2D Edit Level 1 count: {level_counts_2d['level_1']}")
-# print(f"2D Edit Level 2 count: {level_counts_2d['level_2']}")
-# print(f"2D Edit Level 3 count: {level_counts_2d['level_3']}")
-# # print(f"2D Unknown count: {level_counts_2d['unknown']}")
-# # 输出统计结果
-# print(f"3D Edit Level 1 count: {level_counts_3d['level_1']}")
-# print(f"3D Edit Level 2 count: {level_counts_3d['level_2']}")
-# print(f"3D Edit Level 3 count: {level_counts_3d['level_3']}")
-# # print(f"3D Unknown count: {level_counts_3d['unknown']}")
+    level_counts_3d = {"level_1": 0, "level_2": 0, "level_3": 0, "unknown": 0}
+    level_counts_2d = {"level_1": 0, "level_2": 0, "level_3": 0, "unknown": 0}
+    # json_path_list = [f"/data/Hszhu/dataset/Subjects200K/Subset_{i}/full_2d_edit_sample_{i}.json" for i in range(4)]
+    # # json_path_list = [f"/data/Hszhu/dataset/PIE-Bench_v1/Subset_{i}/full_2d_edit_sample_{i}.json" for i in range(4)]
+    # # json_path_list = [f"/data/Hszhu/dataset/Geo-Bench/annotations.json"]
+    # img_num=0
+    # ins_num=0
+    # edit_num=0
+    # error_num=0
+    # for file in json_path_list:
+    #     data = load_json(file)
+    #     for da_n,da in data.items():
+    #         img_stat=False
+    #         ins_stat=False
+    #
+    #         ins_data = da['instances']
+    #         for ins_id ,ins in ins_data.items():
+    #
+    #             for case_id, gt_data in ins.items():
+    #                 img_stat=True
+    #                 ins_stat=True
+    #                 edit_num+=1
+    #                 edit_prompt = gt_data.get('edit_prompt', '')
+    #                 edit_type = '3d' if 'y-axis' in edit_prompt else '2d'
+    #                 level = classify_edit_prompt(edit_prompt, degrees)
+    #                 if edit_type =='3d':
+    #                     level_counts_3d[level]+=1
+    #                 else:
+    #                     level_counts_2d[level]+=1
+    #             if ins_stat:
+    #                 ins_num+=1
+    #
+    #         if img_stat:
+    #             img_num+=1
+    #         else:
+    #             error_num+=1
+    #     print(f'cur img num:{img_num}')
+    # # 输出统计结果
+    # print(f"2D Edit Level 1 count: {level_counts_2d['level_1']}")
+    # print(f"2D Edit Level 2 count: {level_counts_2d['level_2']}")
+    # print(f"2D Edit Level 3 count: {level_counts_2d['level_3']}")
+    #
+    # # print(f"2D Unknown count: {level_counts_2d['unknown']}")
+    # # 输出统计结果
+    # # print(f"3D Edit Level 1 count: {level_counts_3d['level_1']}")
+    # # print(f"3D Edit Level 2 count: {level_counts_3d['level_2']}")
+    # # print(f"3D Edit Level 3 count: {level_counts_3d['level_3']}")
+    # # print(f"3D Unknown count: {level_counts_3d['unknown']}")
+    # print(f'img_num:{img_num}, ins_num:{ins_num}, edit_num:{edit_num} error_num:{error_num}')
+    #
+    # data = load_json(f"/data/Hszhu/dataset/Geo-Bench/annotations.json")
+    # data2 = load_json(f"/data/Hszhu/dataset/Subjects200K/Subset_0/full_2d_edit_sample_0.json")
+    # for da_n,da in data2.items():
+    #     if da_n not in data:
+    #         print(da_n)
+    # id = 0
+    # dataset_name = "PIE-Bench_v1" #Subjects200K,
+    # data_0 = load_json(f"/data/Hszhu/dataset/{dataset_name}/Subset_{id}/coarse_input_full_pack_{id}.json")
+    # data_1 = load_json(f"/data/Hszhu/dataset/{dataset_name}/Subset_{id}/full_2d_edit_sample_{id}.json")
+    # new_da = dict()
+    # for da_n,da in data_0.items():
+    #     if da_n not in data_1:
+    #         new_da[da_n] = da
+    #         continue
+    #     for ins_n,ins in da['instances'].items():
+    #         if ins_n not in data_1[da_n]['instances']:
+    #             new_da[da_n] = da
+    #             new_da[da_n]['instances'] = {}
+    #             new_da[da_n]['instances'][ins_n]=ins
+    #             continue
+    #         else:
+    #             for edit_id,edits in ins.items():
+    #                 if edit_id not in data_1[da_n]['instances'][ins_n]:
+    #                     new_da[da_n] = da
+    #                     new_da[da_n]['instances'] = {}
+    #                     new_da[da_n]['instances'][ins_n] = {}
+    #                     new_da[da_n]['instances'][ins_n][edit_id] = edits
+    # save_json(new_da,f"/data/Hszhu/dataset/{dataset_name}/Subset_{id}/structure_completion_{id}.json")
+    json_path_list = ["/data/Hszhu/dataset/Geo-Bench-SC/generated_results_sdsa.json"]
+    img_num=0
+    ins_num=0
+    edit_num=0
+    error_num=0
+    for file in json_path_list:
+        data = load_json(file)
+        for da_n,da in data.items():
+            img_stat=False
+            ins_stat=False
+
+            ins_data = da['instances']
+            for ins_id ,ins in ins_data.items():
+
+                for case_id, gt_data in ins.items():
+                    img_stat=True
+                    ins_stat=True
+                    edit_num+=1
+                    edit_prompt = gt_data.get('edit_prompt', '')
+                    edit_type = '3d' if 'y-axis' in edit_prompt else '2d'
+                    level = classify_edit_prompt(edit_prompt, degrees)
+                    if edit_type =='3d':
+                        level_counts_3d[level]+=1
+                    else:
+                        level_counts_2d[level]+=1
+                if ins_stat:
+                    ins_num+=1
+
+            if img_stat:
+                img_num+=1
+            else:
+                error_num+=1
+        print(f'cur img num:{img_num}')
+    # 输出统计结果
+    print(f"2D Edit Level 1 count: {level_counts_2d['level_1']}")
+    print(f"2D Edit Level 2 count: {level_counts_2d['level_2']}")
+    print(f"2D Edit Level 3 count: {level_counts_2d['level_3']}")
+
+    # print(f"2D Unknown count: {level_counts_2d['unknown']}")
+    # 输出统计结果
+    # print(f"3D Edit Level 1 count: {level_counts_3d['level_1']}")
+    # print(f"3D Edit Level 2 count: {level_counts_3d['level_2']}")
+    # print(f"3D Edit Level 3 count: {level_counts_3d['level_3']}")
+    # print(f"3D Unknown count: {level_counts_3d['unknown']}")
+    print(f'img_num:{img_num}, ins_num:{ins_num}, edit_num:{edit_num} error_num:{error_num}')
+    # input_path = "/data/zkl/dragon/dragon_sc.json"
+    # input_path = "/data/zkl/metric/regiondrag-sc.json"
+    # input_path = "/data/zkl/motion/motion-sc.json"
+
+    #extract json:
+    # dst_dir = "/data/Hszhu/dataset/Geo-Bench-SC/gen_results/"
+    # # data = load_json("/data/Hszhu/dataset/Geo-Bench-SC/annotations.json")
+    # data = load_json(input_path)
+    # new_data = deepcopy(data)
+    # for img_n,da in tqdm(data.items()):
+    #     instances = da['instances']
+    #     for ins_n,edits in instances.items():
+    #         for edit_id in edits.keys():
+    #             expect_path = osp.join(dst_dir,f'{img_n}/{ins_n}/gen_{edit_id}.png')
+    #             if osp.exists(expect_path):
+    #                 # new_data[img_n]['instances'][ins_n][edit_id].update({'gen_img_path':expect_path})
+    #                 a = 1
+    #             else:
+    #                 new_data[img_n]['instances'][ins_n].pop(edit_id)
+    #         if len(new_data[img_n]['instances'][ins_n])==0:
+    #             new_data[img_n]['instances'].pop(ins_n)
+    #     if len(new_data[img_n]['instances'])==0:
+    #         new_data.pop(img_n)
+    # # save_json(new_data,"/data/Hszhu/dataset/Geo-Bench-SC/annotations.json")
+    # save_json(new_data,input_path)
+    # print(f'success save TO {input_path}')
+
+
+
 
 

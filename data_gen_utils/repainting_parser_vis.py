@@ -1,7 +1,7 @@
 import os
-from tempfile import tempdir
 
-os.environ["CUDA_VISIBLE_DEVICES"]="3"
+
+os.environ["CUDA_VISIBLE_DEVICES"]="6"
 import os.path as osp
 import json
 from tqdm import  tqdm
@@ -19,7 +19,7 @@ from src.demo.model import AutoPipeReggio
 import torch
 import cv2
 import argparse
-from src.utils.attention import AttentionStore,register_attention_control,Mask_Expansion_SELF_ATTN
+from src.utils.attention import AttentionStore,register_attention_control,Attention_Modulator
 import clip
 from diffusers import StableDiffusionPipeline, DDIMInverseScheduler, AutoencoderKL, DDIMScheduler,DDIMPipeline,StableDiffusionInpaintPipeline,UNet2DConditionModel
 def temp_view_img(image: Image.Image, title: str = None) -> None:
@@ -205,8 +205,7 @@ def get_constrain_areas(mask_list_path):
 
 def prepare_mask_pool(instances):
     mask_pool = []
-    for i in range(len(instances)):
-        ins = instances[str(i)]
+    for i,ins in instances.items():
         if len(ins) == 0:
             continue
 
@@ -217,16 +216,81 @@ def prepare_mask_pool(instances):
         mask_pool.append(ins[first_key]['ori_mask_path'])
 
     return mask_pool
+def re_edit_2d(src_img,src_mask,edit_param,inp_cur):
+    if len(src_mask.shape) == 3:
+        src_mask = src_mask[:, :, 0]
+    dx,dy,dz,rx,ry,rz,sx,sy,sz = edit_param
+    rotation_angle = rz
+    resize_scale = (sx, sy)
+    flip_horizontal = False
+    flip_vertical = False
+    # Prepare foreground
+    height, width = src_mask.shape[:2]
+    y_indices, x_indices = np.where(src_mask)
+    if len(y_indices) > 0 and len(x_indices) > 0:
+        top, bottom = np.min(y_indices), np.max(y_indices)
+        left, right = np.min(x_indices), np.max(x_indices)
+        # mask_roi = mask[top:bottom + 1, left:right + 1]
+        # image_roi = image[top:bottom + 1, left:right + 1]
+        mask_center_x, mask_center_y = (right + left) / 2, (top + bottom) / 2
+        # 检查是否有移动操作（dx 或 dy 不为零）
+        if dx != 0 or dy != 0:
+            # 计算物体移动后的新边界
+            new_left = left + dx
+            new_right = right + dx
+            new_top = top + dy
+            new_bottom = bottom + dy
+
+            # 检查新边界是否超出图像的边界
+            if new_left < 0 or new_right > width or new_top < 0 or new_bottom > height:
+                # 如果超出边界，则丢弃或做其他处理
+                assert False, 'The transformed object is out of image boundary after move, discard'
+
+    # 将resize_scale解耦出来，实现x，y的单独缩放
+    rotation_matrix = cv2.getRotationMatrix2D((mask_center_x, mask_center_y), -rotation_angle, 1)
+    # 当rotation angle=0且resize scale!=1时，由mask 中心会影响dx,dy的初始值
+    # 计算公式默认rotation angle=0
+    tx, ty = (1 - resize_scale[0]) * mask_center_x, (1 - resize_scale[1]) * mask_center_y
+    dx += tx
+    dy += ty
+    rotation_matrix[0, 2] += dx
+    rotation_matrix[1, 2] += dy
+    rotation_matrix[0, 0] *= resize_scale[0]
+    rotation_matrix[1, 1] *= resize_scale[1]
+
+    transformed_image = cv2.warpAffine(src_img, rotation_matrix, (width, height))
+    transformed_mask = cv2.warpAffine(src_mask.astype(np.uint8), rotation_matrix, (width, height),
+                                      flags=cv2.INTER_NEAREST).astype(bool)
+
+    # # 检查是否需要水平翻转
+    # if flip_horizontal:
+    #     transformed_mask = cv2.flip(transformed_mask.astype(np.uint8), 1).astype(bool)
+    #     # transformed_mask_exp = cv2.flip(transformed_mask_exp.astype(np.uint8), 1).astype(bool)
+    #
+    # # 检查是否需要垂直翻转
+    # if flip_vertical:
+    #     transformed_mask = cv2.flip(transformed_mask.astype(np.uint8), 0).astype(bool)
+    #     # transformed_mask_exp = cv2.flip(transformed_mask_exp.astype(np.uint8), 0).astype(bool)
+    # if np.array_equal(transformed_mask.astype(np.uint8)*255, tgt_mask):
+    #     return True,transformed_mask
+    # else:
+    #     return False,transformed_mask
+    final_image = np.where(transformed_mask[:, :, None], transformed_image,
+                           inp_cur)  # move with expansion pixels but inpaint
+    return final_image, transformed_mask.astype(np.uint8)*255
 
 
 def main(data_id, base_dir):
     dst_base = osp.join(base_dir, f'Subset_{data_id}')
-    if osp.exists(osp.join(dst_base,f"generated_dataset_full_pack_{data_id}.json")):
-        print(f'repainting for {data_id} already finish!')
-        return
+    # if osp.exists(osp.join(dst_base,f"generated_dataset_full_pack_{data_id}.json")):
+    #     print(f'repainting for {data_id} already finish!')
+    #     return
+    dataset_json_file_assist = osp.join(dst_base, f"mat_fooocus_inpainting_{data_id}.json")
+
     dataset_json_file = osp.join(dst_base,f"coarse_input_full_pack_{data_id}.json")
 
     data = load_json(dataset_json_file)
+    assist_data = load_json(dataset_json_file_assist)
     # data_parts = split_data(data, 2 , seed=42)
 
 
@@ -245,7 +309,7 @@ def main(data_id, base_dir):
 
     model.scheduler = DDIMScheduler.from_config(model.scheduler.config,)
     # model.inpainter = lama_with_refine(device)
-    controller = Mask_Expansion_SELF_ATTN(block_size=8,drop_rate=0.5,start_layer=10)
+    controller = Attention_Modulator(start_layer=10)
     controller.contrast_beta = 1.67
     controller.use_contrast = True
     model.controller = controller
@@ -267,16 +331,25 @@ def main(data_id, base_dir):
     vis = True
     if vis:
         #user provided
-        da_n = '102' #27 102
+        da_n = '5' #27 102
+        ins_id = '0'
+        edit_id = '0'
         da = data[da_n]
+        assist_da = assist_data[da_n]
         instances = da['instances']
-        edit_meta = instances['0']
-        coarse_input_pack = edit_meta['0']
+        assist_instances = assist_da['instances']
+        edit_meta = instances[ins_id]
+
+        inp_back_ground =  cv2.cvtColor(cv2.imread(assist_instances['inp_img_path'][int(ins_id)]),cv2.COLOR_BGR2RGB)
+        coarse_input_pack = edit_meta[edit_id]
+
         mask_pool = prepare_mask_pool(instances)
-        # constrain_areas_strict = get_constrain_areas(mask_pool)
-        # constrain_areas_strict  = cv2.resize(constrain_areas_strict , dsize=(512,512), interpolation=cv2.INTER_NEAREST)
+        constrain_areas_strict = get_constrain_areas(mask_pool)
+        constrain_areas_strict  = cv2.resize(constrain_areas_strict , dsize=(512,512), interpolation=cv2.INTER_NEAREST)
 
         edit_prompt = coarse_input_pack['edit_prompt']
+        edit_param = coarse_input_pack['edit_param']
+
         ori_img = cv2.imread(coarse_input_pack['src_img_path'])  # bgr
         ori_img = cv2.cvtColor(ori_img, cv2.COLOR_BGR2RGB)
         # ori_caption  = coarse_input_pack['tag_caption']
@@ -287,13 +360,23 @@ def main(data_id, base_dir):
         coarse_input = cv2.imread(coarse_input_pack['coarse_input_path'])  # bgr
         coarse_input = cv2.cvtColor( coarse_input , cv2.COLOR_BGR2RGB)
         temp_view_img(coarse_input)
-        ori_mask = cv2.resize(ori_mask,dsize = target_mask.shape[:2],interpolation=cv2.INTER_NEAREST)
-        draw_mask =  cv2.imread("/data/Hszhu/Reggio/data_gen_utils/draw_mask2.png")  # bgr
+        ori_mask = cv2.resize(ori_mask, dsize=target_mask.shape[:2], interpolation=cv2.INTER_NEAREST)
+        inp_back_ground = cv2.resize(inp_back_ground, dsize=target_mask.shape[:2])
+        #re editing 2D for vis
+        new_edit_param = [0,0,0,0,0,0,0.4,0.4,1]
+        coarse_input,target_mask = re_edit_2d(ori_img,ori_mask,new_edit_param,inp_back_ground)
+        save_img_cr = Image.fromarray(coarse_input)
+        save_img_cr.save("new_edit_cr.png")
+        temp_view_img(coarse_input)
+
+        # draw_mask =  cv2.imread("/data/Hszhu/Reggio/data_gen_utils/draw_mask_penguin.png")  # bgr
+        draw_mask = cv2.imread("/data/Hszhu/Reggio/draw_mask_penguin.png")  # bgr
+        temp_view(draw_mask)
         # generated_results,exp_target_mask = model.generated_refine_results(ori_img,ori_mask,coarse_input,target_mask,constrain_areas_strict,obj_label,guidance_scale=7.5,eta=1.0,contrast_beta = 1.67,
         #                                                    end_step = 0, num_step = 50, start_step = 25,use_mtsa = True,feature_injection=False,local_text_edit=True,local_ddpm=True,verbose=True, obj_label= obj_label)#add gen_res in input_pack
         generated_results = model.Reggio_refine_generation(ori_img, ori_mask, coarse_input,
                                                            target_mask,
-                                                           "", guidance_scale=7.5,
+                                                           obj_label, guidance_scale=7.5,
                                                            eta=1.0, contrast_beta=1.67,
                                                            end_step=25, num_step=50,
                                                            start_step=13, use_mtsa=True,
@@ -301,14 +384,15 @@ def main(data_id, base_dir):
                                                            local_ddpm=True, verbose=False,
                                                            return_ori=False, seed=42, draw_mask=draw_mask,
                                                            use_gs=False, gs_scale=2.4, return_intermediates=False,
-                                                           context_guidance=0.3,
+                                                           context_guidance=0.4,use_auto_draw=False,use_share_attention=False,
+                                                                   cons_area=constrain_areas_strict
                                                            )  # add gen_res in input_pack
 
-
-        save_img = Image.fromarray(generated_results)
-        save_img .save("gen_car_full.png")  # 保存为PNG格式（单通道）
-
         temp_view_img(generated_results)
+        save_img = Image.fromarray(generated_results)
+        # save_img .save("gen_car_full.png")  # 保存为PNG格式（单通道）
+
+
 
 
 

@@ -206,7 +206,6 @@ data = load_json(osp.join(dest_dir,"annotations.json"))
 ins_length = np.array([len(v.keys()) for k,v in data.items()])
 print(f'img num :{len(ins_length)}')
 print(f'ins num :{np.sum(ins_length)}')
-print(f'average ins:{np.mean(ins_length)}')
 ins_dict_list= np.array([v for k,v in data.items()])
 edit_length = []
 for ins_d in ins_dict_list: #dict('0','1','2') per img
@@ -214,7 +213,6 @@ for ins_d in ins_dict_list: #dict('0','1','2') per img
         edit_length.append(len(v.keys()))
 edit_length = np.array(edit_length) #ins num
 print(f'full edit result pair num:{np.sum(edit_length)}')
-print(f'average edit result per ins:{np.mean(edit_length)}')
 def classify_edit_prompt(edit_prompt, degrees):
     """
     根据 edit_prompt 来定位属于哪个level

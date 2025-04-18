@@ -43,8 +43,10 @@ conda activate pt2
 cd /data/Hszhu/generative-models/
 #pt2 coarse edit
 python scripts/sampling/coarse_editing_2d_3d_parser.py --data_id "$DATA_ID" --base_dir "$BASE_DIR"
+python scripts/sampling/coarse_editing_2d_3d_parser.py --data_id "$DATA_ID" --base_dir "$BASE_DIR" --use_3d
 #
 ##环境变更
+
 #conda deactivate
 #conda activate Reggio
 ##进入指定目录

@@ -33,6 +33,10 @@ cd /data/Hszhu/comfyui-inpaint-nodes
 #python infer_fooocus_mat.py --data_id "$DATA_ID" --base_dir "$BASE_DIR"
 conda deactivate
 
+conda activate flask
+cd /data/Hszhu/Reggio/flask_app
+#bash preprocess_before_ui.sh "$DATA_ID" "$BASE_DIR"
+conda deactivate
 #环境变更
 
 conda activate pt2
@@ -40,6 +44,8 @@ conda activate pt2
 cd /data/Hszhu/generative-models/
 ##pt2 coarse edit
 python scripts/sampling/coarse_editing_2d_3d_parser.py --data_id "$DATA_ID" --base_dir "$BASE_DIR"
+python scripts/sampling/coarse_editing_2d_3d_parser.py --data_id "$DATA_ID" --base_dir "$BASE_DIR" --use_3d
+
 conda deactivate
 
 conda activate Reggio
