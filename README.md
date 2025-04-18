@@ -49,13 +49,13 @@ Our algorithm’s versatility allows it to tackle diverse tasks beyond its core 
 ```bash
 git clone https://github.com/CIawevy/FreeFine.git
 cd FreeFine
-conda create -n freefine python=3.9.19 -y
-conda activate freefine
+conda create -n FreeFine python=3.9.19 -y
+conda activate FreeFine
 pip install -r requirements.txt
 ```
 
 # ⏬ Download Models 
-All models will be automatically downloaded by using diffuser. You can also choose to download them locally through the following scripts
+All models will be automatically downloaded by using diffuser.(todo:sam download) You can also choose to download them locally through the following scripts
 ```bash
 bash scripts/download_models.sh
 ```
@@ -86,9 +86,9 @@ python Eval/inference.py
 ## 📜 Citation  
 ```bibtex
 @inproceedings{freefine2025,
-  title={FreeFine: Training-Free Geometric Editing via Decoupled Diffusion}, 
+  title={FreeFine: Training-Free Diffusion for Geometric Image Editing}, 
   author={Your Name and Coauthors},
-  booktitle={ICCV},
+  booktitle={ICCV}, 
   year={2025}
 }
 
