@@ -7,9 +7,22 @@ from torchvision import transforms
 from PIL import Image
 
 from sam.efficient_sam.build_efficient_sam import build_efficient_sam_vits
-from src.utils.utils import resize_numpy_image
-
-from sam.efficient_sam.efficient_sam import build_efficient_sam
+def resize_numpy_image(image, max_resolution=768 * 768, resize_short_edge=None,mask_input=False):
+    h, w = image.shape[:2]
+    w_org = image.shape[1]
+    if resize_short_edge is not None:
+        k = resize_short_edge / min(h, w)
+    else:
+        k = max_resolution / (h * w)
+        k = k**0.5
+    h = int(np.round(h * k / 64)) * 64
+    w = int(np.round(w * k / 64)) * 64
+    if not mask_input:
+        image = cv2.resize(image, (w, h), interpolation=cv2.INTER_LANCZOS4)
+    else:
+        image = cv2.resize(image, (w, h), interpolation=cv2.INTER_NEAREST)
+    scale = w/w_org
+    return image, scale
 sam = build_efficient_sam_vits()
 
 def show_point_or_box(image, global_points):
