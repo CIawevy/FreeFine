@@ -1,7 +1,7 @@
 # FreeFine: Training-Free Diffusion for Geometric Image Editing
 
 
-![teaser](assets/teaser.png")
+![teaser](assets/teaser.png)
 
 
 
@@ -13,7 +13,7 @@
 We present **FreeFine**, a novel framework for high-fidelity geometric image editing that enables **object repositioning**, **reorientation**, and **reshaping** while maintaining global coherence. Remarkably, our framework simultaneously achieves **structure completion**, **object removal**, **appearance transfer**, and **multi-image composition** within a unified pipeline - all through efficient training-free diffusion. 
 
 Unlike existing diffusion-based editing methods that struggle with large/complex transformations, our approach introduces a decoupled pipeline that separates:
-![Pipeline](assets/pipeline.png")
+![Pipeline](assets/pipeline.png)
 
 
 ## 📢 News & Updates  
