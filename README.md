@@ -1,23 +1,33 @@
-# [Reggio] Real-Image-Geometric-Editing Pipeline
-- Free exploration of tuning-free geometric editing pipeline 
+# FreeFine: Training-Free Diffusion for Geometric Image Editing
 
 
-## 🚩 **New Features/Updates**
-- Support any form of 2D/3D transformation now!
-- Support for different format of user input: Box Draw / Casual Draw 
-- Expansion of the orignal mask and moving with background correlation semantics
-- Single Copy Paste & Generation Baseline namingly CPIG Baseline for natrual geometric editing 
+![teaser](assets/teaser.png")
+
+
+
+**Official Implementation of ICCV 2025 Submission** | [Project Page]() | [arXiv Paper]() | [GeoBench Dataset]()  
 
 ---
-# Introduction
-**Reggio** is a turning-free method for fine-grained Real image Geo editing. 
-- My_app.py : Gradio code for user friendly online CPIG operation.
-- mask_expansion_main.py : Offline code for batched input [imgs+msks] and generate Expansion masks with refinement .
-- src/utils/attention.py: My attention logger and controller , get expansion mask each layer /step.
-- src/demo/model  ClawerModels: ensembles most of functions needed .
-- dynamic_thr_vis.py playful visualization tools for dynamic thr function  selection.
-- 3d_geometric_transform.py Offline code for User defined 3D operations and transforming demo .
-- src/utils/geometric_utils.py: Most of my 3D transformation functions are defined here.
+
+## 🌟 Introduction  
+We present **FreeFine**, a novel framework for high-fidelity geometric image editing that enables **object repositioning**, **reorientation**, and **reshaping** while maintaining global coherence. Remarkably, our framework simultaneously achieves **structure completion**, **object removal**, **appearance transfer**, and **multi-image composition** within a unified pipeline - all through efficient training-free diffusion. 
+
+Unlike existing diffusion-based editing methods that struggle with large/complex transformations, our approach introduces a decoupled pipeline that separates:
+![Pipeline](assets/pipeline.png")
+
+
+## 📢 News & Updates  
+**2025-07-15**  
+🚀 Codebase released with:  
+- Pre-trained models for all GeoBench scenarios  
+- Jupyter notebook tutorials  
+- Windows/Linux compatibility patches  
+
+**2025-06-30**  
+🏆 Accepted to **ICCV 2025**! Paper [arXiv link]() now available  
+
+**2025-03-02**  
+📊 Submited to **ICCV 2025**!
 
 # 🔥🔥🔥 Main Features  
 
@@ -44,70 +54,53 @@
 ### **Watermark-Removing**
 ![watermark-removing](examples/watermark-removing.png)
 
-# 🔧 Dependencies and Installation
+## 🛠️ Installation  
 
-- Python >= 3.8 (Recommend to use [Anaconda](https://www.anaconda.com/download/#linux) or [Miniconda](https://docs.conda.io/en/latest/miniconda.html))
-- [PyTorch >= 2.0.1](https://pytorch.org/)
-- [Pytorch3d](https://anaconda.org/pytorch3d/repo/files?type=any&label=main)
+- Python >= 3.8 , PyTorch >= 2.0.1
 ```bash
+git clone https://github.com/CIawevy/FreeFine.git
+cd FreeFine
+conda create -n freefine python=3.9.19 -y
+conda activate freefine
 pip install -r requirements.txt
-pip install dlib==19.14.0
-#pip install simple-lama-inpainting
-#use lama refiner instead
-pip install accelerate  
-#SAM
-python -m pip install -e segment_anything
-#GroundingDINO
-pip install --no-build-isolation -e GroundingDINO
-#RAM
-pip install -r ./recognize-anything/requirements.txt
-pip install -e ./recognize-anything/
-git clone https://github.com/openai/CLIP.git
-#CLIP
-cd CLIP
-pip install -r requirements.txt
-pip install -e .
-#Besides you need to install pytorch-3d yourself.
-#conda install -c fvcore -c iopath -c conda-forge fvcore iopath
-# for cuda 11.7
-#conda install https://anaconda.org/pytorch3d/pytorch3d/0.7.5/download/linux-64/pytorch3d-0.7.5-py39_cu117_pyt201.tar.bz2
-# for cuda 12.1
-#conda install  https://anaconda.org/pytorch3d/pytorch3d/0.7.5/download/linux-64/pytorch3d-0.7.5-py39_cu121_pyt210.tar.bz2
 ```
-
 
 # ⏬ Download Models 
-All models will be automatically downloaded. You can also choose to download manually from this [url](https://huggingface.co/Adapter/DragonDiffusion).
-Besides download the `sd-inpainting` model and `Depth-anything` model weights yourself.
-
-# 💻 How to Test
-Inference requires at least `22GB` of GPU memory for editing a `768x768` image.  
-We provide a quick start on gradio demo.
+All models will be automatically downloaded by using diffuser. You can also choose to download them locally through the following scripts
 ```bash
-python My_app.py 
+bash scripts/download_models.sh
 ```
-run this command to generate expansion mask for local imgs and org masks. An offline version
-which is easier to debug
+# 🚀 Quick Start 
+Run On Web Interface
 ```bash
-python mask_expansion_main.py
+python app.py  # Launch Gradio UI  
 ```
-run this command to debug 3D-Editing opereation without gradio. An offline version
+Run On Jupyter Notebooks
 ```bash
-python 3d_geometric_transform.py
+cd jupyter_demo
+```
+Inference & Eval
+```bash
+python Eval/inference.py
 ```
 
-
-# 💻 Relate Repos
+# 📚 Relate Repos
 [1] <a href="https://github.com/MC-E/DragonDiffusion>DragonDiffusion">DragonDiffusion: Enabling Drag-style Manipulation on Diffusion Models</a>
 </p>
-[2] <a href="https://github.com/advimman/lama">LaMa: Resolution-robust Large Mask Inpainting with Fourier Convolutions</a>
+[2] <a href=https://github.com/google/prompt-to-prompt>PROMPT-TO-PROMPT IMAGE EDITING
+ WITH CROSS-ATTENTION CONTROL</a>
 </p>
-[3] <a href="https://github.com/runwayml/stable-diffusion?tab=readme-ov-file#inpainting-with-stable-diffusion">Image Modification with Stable Diffusion</a>
-</p>
-[4] <a href=https://github.com/LiheYoung/Depth-Anything>Depth Anything: Unleashing the Power of Large-Scale Unlabeled Data</a>
+[3] <a href=https://github.com/design-edit/DesignEdit>DesignEdit: Unify Spatial-Aware Image Editing via Training-free Inpainting with a Multi-Layered Latent Diffusion Framework</a>
 </p>
 
 
-
+## 📜 Citation  
+```bibtex
+@inproceedings{freefine2025,
+  title={FreeFine: Training-Free Geometric Editing via Decoupled Diffusion}, 
+  author={Your Name and Coauthors},
+  booktitle={ICCV},
+  year={2025}
+}
 
 
