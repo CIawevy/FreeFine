@@ -10,9 +10,9 @@
 ---
 
 ## 🌟 Introduction  
-We present **FreeFine**, a novel framework for high-fidelity geometric image editing that enables **object repositioning**, **reorientation**, and **reshaping** while maintaining global coherence. Remarkably, our framework simultaneously achieves **structure completion**, **object removal**, **appearance transfer**, and **multi-image composition** within a unified pipeline - all through efficient training-free diffusion. 
+We present **FreeFine**, a novel framework for high-fidelity geometric image editing that enpowers users with both  **Object-centric Editing**(such as **Object Repositioning, Reorientation, and Reshaping** and **Fine-grained Partial Editing**, all while maintaining global coherence. Remarkably, our framework simultaneously achieves **Structure Completion**, **Object Removal**, **Appearance Transfer**, and **Multi-Image Composition** within a unified pipeline - all through efficient, training-free algorithms based on diffusion models.
 
-Unlike existing diffusion-based editing methods that struggle with large/complex transformations, our approach introduces a decoupled pipeline that separates:
+Unlike existing diffusion-based editing methods that struggle with large/complex transformations, our approach splits the editing process into object transformation, source region inpainting, and target region refinement, supporting both 2D and 3D transformations.
 ![Pipeline](assets/pipeline.png)
 
 
@@ -29,31 +29,20 @@ Unlike existing diffusion-based editing methods that struggle with large/complex
 **2025-03-02**  
 📊 Submited to **ICCV 2025**!
 
-# 🔥🔥🔥 Main Features  
 
-### **Object-Moving**  
-![Object-Moving](examples/object-moving.png)
+# 🌟 Extended Applications
+Our algorithm’s versatility allows it to tackle diverse tasks beyond its core functionality. Here, we demonstrate its effectiveness in several challenging scenarios.
+### **Fine-grained Partial Editing**  
+![Fine-grained Partial Editing](assets/Partial-edit-0.png)
+![Fine-grained Partial Editing](assets/Partial-edit-2.png)
 
+### **Appearance Transfer**
+![APT](assets/Appearance-transfer-2.png)
+![APT](assets/Appearance-transfer-0.png)
 
-### **Object-Moving**  
-![object-moving-2](examples/object-moving-2.png)
-
-
-### **Object-Moving **  
-![object-moving-3](examples/object-moving-3.png)
-
-### **3D-Editting **  
-![3D-Editting](examples/3D-Editting-current.png)
-
-### **3D-Editting **  
-![3D-Editting-2](examples/3D-Editting-current-2.png)
-
-### **3D-CPI-Pipeline**
-![3D-CPI-PIPELINE](examples/3D-CPI-PIPELINE.png)
-
-### **Watermark-Removing**
-![watermark-removing](examples/watermark-removing.png)
-
+### **Cross-Image Composition**
+![CIC](assets/Cross-image-composition-0.png)
+![CIC](assets/Cross-image-composition-2.png)
 ## 🛠️ Installation  
 
 - Python >= 3.8 , PyTorch >= 2.0.1
@@ -86,7 +75,7 @@ python Eval/inference.py
 
 # 📚 Relate Repos
 [1] <a href="https://github.com/MC-E/DragonDiffusion>DragonDiffusion">DragonDiffusion: Enabling Drag-style Manipulation on Diffusion Models</a>
-</p>
+[examples](examples)</p>
 [2] <a href=https://github.com/google/prompt-to-prompt>PROMPT-TO-PROMPT IMAGE EDITING
  WITH CROSS-ATTENTION CONTROL</a>
 </p>
