@@ -8,7 +8,7 @@ source /path/to/your/conda/etc/profile.d/conda.sh
 conda activate FreeFine
 
 # 如果您无法直接访问 Hugging Face，请取消注释以下行并设置镜像或代理
-# export HF_ENDPOINT=https://hf-mirror.com  # 或者使用代理
+#export HF_ENDPOINT=https://hf-mirror.com  # 或者使用代理
 
 # 设置循环次数，防止下载中断
 NUM_ITERATIONS=20  # 根据需要调整循环次数

@@ -18,7 +18,7 @@ from src.utils.attention import override_forward
 from rembg import remove
 from typing import Optional
 from pytorch_lightning.utilities import rank_zero_warn
-
+from diffusers import DDIMScheduler
 def my_seed_everything(seed: Optional[int] = None) -> int:
     """
     Function that sets seed for pseudo-random number generators in:
@@ -84,8 +84,23 @@ class Latent2RGBPreviewer:
                          .mul(0xFF)  # to 0..255
                          ).to(device="cpu", dtype=torch.uint8)
         return Image.fromarray(latents_ubyte.numpy())
-
+class FreeFine():
+    def __init__(self, pretrained_model_path='/data/Hszhu/prompt-to-prompt/stable-diffusion-v1-5/"', device=None):
+        if device is None:
+            device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+        # base_sd path
+        precision = torch.float16
+        model = FreeFinePipeline.from_pretrained(pretrained_model_path, torch_dtype=precision).to(device)
+        model.scheduler = DDIMScheduler.from_config(model.scheduler.config,)
+        self.model = model
+    def run_remove(self):
+        pass
+    def run_edit(self):
+        pass
+    def run_compose(self):
+        pass
 class FreeFinePipeline(StableDiffusionPipeline):
+
     def modify_unet_forward(self):
         self.unet.forward = override_forward(self.unet)
 

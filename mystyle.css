@@ -1,0 +1,96 @@
+/* 基础样式 */
+:root {
+    --primary-color: #4CAF50;
+    --secondary-color: #2196F3;
+    --accent-color: #FF9800;
+}
+
+/* 全局容器样式 */
+.gradio-container {
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%) !important;
+}
+
+/* 标题样式 */
+h1 {
+    text-align: center;
+    color: var(--primary-color) !important;
+    margin-bottom: 0.5rem !important;
+    font-size: 2.5rem !important;
+    border-bottom: 3px solid var(--primary-color);
+    display: inline-block;
+    padding-bottom: 0.5rem;
+}
+
+/* 页脚处理 */
+footer.svelte-1ax1toq {
+    display: none !important; /* 隐藏默认页脚 */
+}
+
+/* 布局调整 */
+.wrap.svelte-1p9xokt.svelte-1p9xokt.svelte-1p9xokt {
+    justify-content: space-around !important;
+}
+
+/* 新增卡片样式 */
+.header {
+    text-align: center;
+    padding: 2rem;
+    background: white;
+    border-radius: 15px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    margin: 1rem auto;
+    max-width: 800px;
+}
+
+/* 选项卡样式 */
+.tab-nav {
+    background: white !important;
+    border-radius: 12px !important;
+    padding: 1rem !important;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+}
+
+.tab-item {
+    padding: 1rem 2rem !important;
+    border-radius: 8px !important;
+    transition: all 0.3s ease !important;
+}
+
+.tab-item:hover {
+    background: #f5f5f5 !important;
+}
+
+.tab-item.selected {
+    background: var(--primary-color) !important;
+    color: white !important;
+}
+
+/* 功能区块样式 */
+.operation-section {
+    background: white;
+    padding: 2rem;
+    border-radius: 15px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+    margin-top: 1rem;
+}
+
+/* 加载状态提示 */
+.processing-status {
+    color: var(--secondary-color);
+    font-weight: bold;
+    text-align: center;
+    padding: 1rem;
+}
+
+/* 自定义页脚 */
+.custom-footer {
+    text-align: center;
+    color: #666;
+    padding: 2rem 0;
+}
+
+.custom-footer a {
+    color: var(--secondary-color);
+    text-decoration: none;
+    margin: 0 1rem;
+}

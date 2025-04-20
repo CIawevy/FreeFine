@@ -371,7 +371,7 @@ def main(method_name='caa'):
     os.makedirs(dst_dir_path_gen, exist_ok=True)
     dataset_json_file = osp.join(dst_base,f"annotations.json")
 
-    data = load_json(dataset_json_file)
+    data = load_json(dataset25_json_file)
     # data_parts = split_data(data, 2 , seed=42)
 
     device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
