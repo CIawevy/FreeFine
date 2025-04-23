@@ -1,3 +1,4 @@
+from PIL.Image import blend
 from diffusers.utils.torch_utils import  randn_tensor
 import sys
 sys.path.append('/data/Hszhu/Reggio')
@@ -152,6 +153,7 @@ class FreeFinePipeline(StableDiffusionPipeline):
         Returns:
             Tuple[torch.FloatTensor, torch.FloatTensor]: previous sample and predicted original sample.
         """
+
         prev_timestep = timestep - self.scheduler.config.num_train_timesteps // self.scheduler.num_inference_steps
         alpha_prod_t = self.scheduler.alphas_cumprod[timestep]
         alpha_prod_t_prev = self.scheduler.alphas_cumprod[
@@ -159,7 +161,10 @@ class FreeFinePipeline(StableDiffusionPipeline):
         beta_prod_t = 1 - alpha_prod_t
 
         pred_x0 = (x - beta_prod_t ** 0.5 * model_output) / alpha_prod_t ** 0.5
-        variance = self._get_variance(timestep, prev_timestep).to(self.device)
+        variance = self._get_variance(timestep, prev_timestep).to(
+        device=self.device,
+        dtype=model_output.dtype  # 显式指定类型
+    )
         std_dev_t = eta * variance ** (0.5)
         if model_output.shape[0] == 2:  # reference stream
             # batch_0:LOCAL DDPM
@@ -203,18 +208,64 @@ class FreeFinePipeline(StableDiffusionPipeline):
 
         return variance
 
+    # @torch.no_grad()
+    # def image2latent(self, image):
+    #     DEVICE = self.device
+    #     if type(image) is Image:
+    #         image = np.array(image)
+    #         image = torch.from_numpy(image).float() / 127.5 - 1
+    #         image = image.permute(2, 0, 1).unsqueeze(0).to(DEVICE)
+    #     # input image density range [-1, 1]
+    #     latents = self.vae.encode(image)['latent_dist'].mean
+    #     latents = latents * 0.18215
+    #     return latents
+
     @torch.no_grad()
     def image2latent(self, image):
-        DEVICE = self.device
-        if type(image) is Image:
-            image = np.array(image)
-            image = torch.from_numpy(image).float() / 127.5 - 1
-            image = image.permute(2, 0, 1).unsqueeze(0).to(DEVICE)
-        # input image density range [-1, 1]
-        latents = self.vae.encode(image)['latent_dist'].mean
-        latents = latents * 0.18215
-        return latents
+        """Convert input image to latents with strict type and shape checking"""
+        # --- 参数校验 ---
+        assert isinstance(image, (Image.Image, np.ndarray, torch.Tensor)), \
+            f"Unsupported input type: {type(image)}"
 
+        # --- 设备与类型配置 ---
+        target_device = self.device
+        target_dtype = next(self.vae.parameters()).dtype
+        # print(f'type:{target_dtype}')
+        # --- 统一转换流程 ---
+        if isinstance(image, Image.Image):
+            # PIL处理（保持原逻辑）
+            image = np.array(image).astype(np.float32)
+            image = image / 127.5 - 1.0  # [-1,1] 归一化
+            tensor = torch.from_numpy(image)
+        elif isinstance(image, np.ndarray):
+            # numpy处理（显式归一化）
+            assert image.dtype in [np.float32, np.uint8], \
+                "Numpy array must be float32 [0,255] or uint8 [0,255]"
+            if image.dtype == np.uint8:
+                image = image.astype(np.float32) / 255.0 * 2 - 1  # uint8->[-1,1]
+            tensor = torch.from_numpy(image)
+        else:  # torch.Tensor
+            # Tensor处理（强制归一化）
+            assert image.dtype in [torch.float32, torch.float16], \
+                "Tensor must be float32/float16"
+            if image.max() > 1.0 or image.min() < -1.0:
+                print(f"[WARN] Tensor value range [{image.min():.2f}, {image.max():.2f}]")
+            tensor = image.clone().detach()
+
+        # --- 维度校验（保持原逻辑）---
+        if tensor.ndim == 3:  # (H,W,C)
+            tensor = tensor.permute(2, 0, 1).unsqueeze(0)  # -> (1,C,H,W)
+        elif tensor.ndim == 4:  # (B,C,H,W)
+            pass  # 保持原状
+        else:
+            raise ValueError(f"Invalid tensor shape: {tensor.shape}")
+
+        # --- 类型对齐（关键修改）---
+        tensor = tensor.to(device=target_device, dtype=target_dtype)
+
+        # --- VAE编码（保持原逻辑）---
+        latents = self.vae.encode(tensor)['latent_dist'].mean
+        return latents * 0.18215  # 缩放因子保持一致
     @torch.no_grad()
     def latent2image(self, latents, return_type='np'):
         latents = 1 / 0.18215 * latents.detach()
@@ -402,6 +453,26 @@ class FreeFinePipeline(StableDiffusionPipeline):
             # 第二段：t0到t2，h从0.5降到0
             slope = -end_scale / (t2 - t0)
             return end_scale + slope * (t - t0)
+
+    def proximal_guidance(
+        self,
+        t,
+        latents,
+        mask_edit,
+        dtype,
+        local_var_reg,
+        prox_guidance=False,
+        recon_t=400,
+        recon_end=0,
+        recon_lr=0.1,
+        target_latent=None
+    ):
+        if mask_edit is not None and prox_guidance and (recon_t > recon_end and t < recon_t) or (recon_t < -recon_end and t > -recon_t):
+            fix_mask = deepcopy(local_var_reg.repeat(1,4,1,1))
+            mask_edit[0] = (mask_edit[0] + fix_mask).clamp(0, 1)
+            recon_mask = 1 - mask_edit
+            latents = latents - recon_lr * (latents - target_latent) * recon_mask
+        return latents.to(dtype)
     def forward_sampling(
             self,
             prompt,
@@ -509,7 +580,10 @@ class FreeFinePipeline(StableDiffusionPipeline):
             timestep = t.detach().item()
 
             ref_latent = refer_latents[i - start_step + 1][1]
-            latents[1] = ref_latent
+            if latents.shape[0] > 1:
+                latents[1:] = ref_latent
+            else:
+                latents = torch.cat([latents, ref_latent])
             if self.method_type=='tca':
                 self.controller.context_guidance = self.linear_param(i,start_step,end_step,num_inference_steps,end_scale=end_scale)
             elif self.method_type=='mmsa_es':
@@ -547,6 +621,37 @@ class FreeFinePipeline(StableDiffusionPipeline):
             return image, latents_list
         return image, None
 
+    def prox_regularization(
+            self,
+            noise_pred_uncond,
+            noise_pred_text,
+            t,
+            quantile=0.75,
+            recon_t=400,
+            dilate_radius=2,
+    ):
+        def dilate(image, kernel_size, stride=1, padding=0):
+            """
+            Perform dilation on a binary image using a square kernel.
+            """
+            # Ensure the image is binary
+            assert image.max() <= 1 and image.min() >= 0
+
+            # Get the maximum value in each neighborhood
+            dilated_image = F.max_pool2d(image, kernel_size, stride, padding)
+
+            return dilated_image
+        score_delta = (noise_pred_text - noise_pred_uncond).float()
+        threshold = score_delta.abs().quantile(quantile)
+        if (recon_t > 0 and t < recon_t) or (recon_t < 0 and t > -recon_t):
+            mask_edit = (score_delta.abs() > threshold).float()
+            if dilate_radius > 0:
+                radius = int(dilate_radius)
+                mask_edit = dilate(mask_edit.float(), kernel_size=2 * radius + 1, padding=radius)
+        else:
+            mask_edit = None
+        return mask_edit
+
 
     def forward_sampling_background_gen(
             self,
@@ -568,6 +673,7 @@ class FreeFinePipeline(StableDiffusionPipeline):
             local_cfg_reg=None,
             local_text_edit=True,
             share_attn=True,method_type='tca',verbose=False,local_perturbation=True,end_scale=0.5,
+            latent_blended=True, blend_range=(0, 40),
             **kwds):
 
         DEVICE = self.device
@@ -647,7 +753,10 @@ class FreeFinePipeline(StableDiffusionPipeline):
         for i, t in enumerate(tqdm(self.scheduler.timesteps, desc="DDIM Sampler")):
             if num_actual_inference_steps is not None and i < num_inference_steps - num_actual_inference_steps:
                 continue
-            ref_latent = refer_latents[i - start_step + 1]
+            ref_latent = refer_latents[i - start_step]
+            if latents.shape[0] > 1:
+                latents = latents[0].unsqueeze(0)
+
             latents= torch.cat([latents,ref_latent],dim=0)
             if self.method_type == 'tca':
                 self.controller.context_guidance = self.linear_param(i, start_step, end_step, num_inference_steps,end_scale=end_scale)
@@ -657,34 +766,46 @@ class FreeFinePipeline(StableDiffusionPipeline):
 
             with torch.no_grad():
                 model_inputs = torch.cat([latents] * 2)
-                # h_feature_inputs = torch.cat([h_feature] * 2)
-
                 if unconditioning is not None and isinstance(unconditioning, list):
                     _, text_embeddings = text_embeddings.chunk(2)
                     text_embeddings = torch.cat(
                         [unconditioning[i].expand(*text_embeddings.shape), text_embeddings])
 
                 self.controller.log_mask = False
+
                 noise_pred = self.unet(model_inputs, t, encoder_hidden_states=text_embeddings)
 
                 noise_pred_uncon, noise_pred_con = noise_pred.chunk(2, dim=0)
+                # mask_edit = self.prox_regularization(noise_pred_uncon,noise_pred_con,t)
                 # if i < end_step:
                 if not local_text_edit:
                     noise_pred = noise_pred_uncon + guidance_scale * (noise_pred_con - noise_pred_uncon)
                 else:
-                    # modified
-                    # local_text_guidance = guidance_scale * (noise_pred_con - noise_pred_uncon) * obj_mask
                     local_text_guidance = guidance_scale * (noise_pred_con - noise_pred_uncon) * local_cfg_reg
                     noise_pred = noise_pred_uncon + local_text_guidance
 
-                full_mask = torch.ones_like(local_var_reg)
+                full_mask = torch.ones_like(local_var_reg,dtype=noise_pred.dtype)
+
                 if not local_perturbation:
                     latents = self.ctrl_step(noise_pred, t, latents, full_mask, eta=eta)[0]
                 else:
                     latents = self.ctrl_step(noise_pred, t, latents, local_var_reg, eta=eta)[0]
-
-                latents = latents[0].unsqueeze(0)
-                latents_list.append(latents)
+                # print(f'noise_pred:{latents.dtype}')
+                # Proximal and blending tech
+                # latents = self.proximal_guidance(
+                #     t,
+                #     latents,
+                #     mask_edit,
+                #     self.unet.dtype,
+                #     local_var_reg,
+                #     prox_guidance=True,
+                #     target_latent=refer_latents[i - start_step+1],
+                # )
+                #
+                # if latent_blended and blend_range[0]<= i <= blend_range[1]:
+                #     latents[0] = local_var_reg.repeat(1, 4, 1, 1) * latents[0]+ (1 - local_var_reg.repeat(1, 4, 1, 1)) * latents[1]
+                # Proximal and blending tech
+                latents_list.append(latents[0])
         image = self.latent2image(latents, return_type="pt")
         if return_intermediates:
             return image, latents_list
@@ -891,13 +1012,14 @@ class FreeFinePipeline(StableDiffusionPipeline):
     def FreeFine_generation(self, ori_img, ori_mask, coarse_input, target_mask, guidance_text,
                             guidance_scale, eta, end_step=10, num_step=50, start_step=25,
                             share_attn=True, method_type='tca', local_text_edit=True, local_perturbation=True, verbose=True, return_ori=False, seed=42, draw_mask=None,
-                            return_intermediates=False, use_auto_draw=False, cons_area=None, reduce_inp_artifacts=False, sep_region=False, end_scale=0.5):
+                            return_intermediates=False, use_auto_draw=False, cons_area=None, reduce_inp_artifacts=False, end_scale=0.5):
         assert method_type in ['tca','ssa','sdsa','mmsa','mmsa_es'],f"check method type f{method_type}, which is not in {['tca','ssa','sdsa','mmsa','mmsa_es']}"
         print(f'current type is {method_type}')
         seed_everything(seed)
         ori_mask = self.mask_reduce_dim(ori_mask)
         target_mask = self.mask_reduce_dim(target_mask)
-        draw_mask = self.mask_reduce_dim(draw_mask)
+        if draw_mask is not None:
+            draw_mask = self.mask_reduce_dim(draw_mask)
 
         # DDIM INVERSION
         shifted_mask, inverted_latent = self.DDIM_inversion_func(img=coarse_input, mask=target_mask,
@@ -918,7 +1040,7 @@ class FreeFinePipeline(StableDiffusionPipeline):
                                                                                              local_text_edit=local_text_edit, local_perturbation=local_perturbation,
                                                                                              return_intermediates=return_intermediates, cons_area = cons_area,
                                                                                              use_auto_draw=use_auto_draw, end_scale=end_scale,
-                                                                                             reduce_inp_artifacts=reduce_inp_artifacts, sep_region=sep_region,
+                                                                                             reduce_inp_artifacts=reduce_inp_artifacts,
                                                                                              )
         if intermediates is not None:
             self.save_intermediate_images_and_gif_v2(intermediates)
@@ -966,7 +1088,7 @@ class FreeFinePipeline(StableDiffusionPipeline):
     def FreeFine_background_generation(self, ori_img, ori_mask, guidance_text,
                                        guidance_scale, eta, end_step=10, num_step=50, start_step=25,
                                        share_attn=True, method_type='tca', local_text_edit=True, local_perturbation=True, verbose=True, seed=42,
-                                       return_intermediates=False, end_scale=0.5):
+                                       return_intermediates=False, end_scale=0.5, latent_blended=True, blend_range=(0,40),):
         seed_everything(seed)
         ori_mask = self.mask_reduce_dim(ori_mask)
         # DDIM INVERSION
@@ -987,6 +1109,8 @@ class FreeFinePipeline(StableDiffusionPipeline):
                                                                                     verbose=verbose,end_scale=end_scale,
                                                                                     local_text_edit=local_text_edit,local_perturbation=local_perturbation,
                                                                                     return_intermediates=return_intermediates,
+                                                                                    latent_blended=latent_blended,
+                                                                                    blend_range=blend_range,
                                                                                     )
         if intermediates is not None:
             self.save_intermediate_images_and_gif_v2(intermediates)
@@ -1629,7 +1753,7 @@ class FreeFinePipeline(StableDiffusionPipeline):
                                         guidance_scale=3.5, eta=1,
                                         verbose=False,
                                         local_text_edit=True, local_perturbation=True,end_scale=0.5,
-                                        return_intermediates=False,share_attn=True,method_type='tca'):
+                                        return_intermediates=False,share_attn=True,method_type='tca',latent_blended=True,blend_range=(0,40)):
 
         """
         latent vis
@@ -1669,7 +1793,7 @@ class FreeFinePipeline(StableDiffusionPipeline):
             local_cfg_reg = local_var_reg,
             local_var_reg=local_var_reg,
             share_attn=share_attn,method_type=method_type,verbose=verbose,local_text_edit=local_text_edit,local_perturbation=local_perturbation,
-            return_intermediates=return_intermediates,end_scale=end_scale,
+            return_intermediates=return_intermediates,end_scale=end_scale,latent_blended=latent_blended,blend_range=blend_range,
 
         )
 

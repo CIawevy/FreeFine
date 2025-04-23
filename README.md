@@ -16,7 +16,7 @@ Unlike existing diffusion-based editing methods that struggle with large/complex
 ![Pipeline](assets/pipeline.png)
 
 
-## 📢 News & Updates  
+## 📢 News & Updates                                                                                              
 **2025-07-15**  
 🚀 Codebase released with:  
 - Pre-trained models for all GeoBench scenarios  
@@ -53,18 +53,44 @@ conda create -n FreeFine python=3.9.19 -y
 conda activate FreeFine
 pip install -r requirements.txt
 ```
-
+- Install [SV3D](https://github.com/Stability-AI/generative-models) for 3D-editing 
+```bash
+# Set up SV3D environment (separate from main project)
+cd generative-models 
+conda create -n pt2 python=3.10.0 -y
+conda activate pt2
+pip3 install -r requirements/pt2.txt
+pip3 install . #Install sgm
+```
+- Evaluation
+```bash
+cd generative-models 
+conda create -n pt2 python=3.10.0 -y
+conda activate pt2
+pip3 install -r requirements/pt2.txt
+pip3 install . #Install sgm
+```
 # ⏬ Download Models 
-All models will be automatically downloaded by using diffuser.(todo:sam download) You can also choose to download them locally through the following scripts
+- Models will automatically download via Hugging Face's `diffusers` on first run. For offline use or custom installations:
 ```bash
 bash scripts/download_models.sh
 ```
+- You should download SV3D models from [SV3D Hugging Face Repository](https://huggingface.co/stabilityai/sv3d/tree/main)
+```bash
+#move them to the correct location after download
+cd FreeFine/generative-models
+mkdir -p checkpoints  # Creates directory if missing
+mv /path/to/downloaded/sv3d/* checkpoints/
+```
+
+
+
 # 🚀 Quick Start 
 Run On Web Interface
 ```bash
 python app.py  # Launch Gradio UI  
 ```
-Run On Jupyter Notebooks
+Run on Jupyter Notebooks
 ```bash
 cd jupyter_demo
 ```
@@ -74,13 +100,9 @@ python Eval/inference.py
 ```
 
 # 📚 Relate Repos
-[1] <a href="https://github.com/MC-E/DragonDiffusion>DragonDiffusion">DragonDiffusion: Enabling Drag-style Manipulation on Diffusion Models</a>
-[examples](examples)</p>
-[2] <a href=https://github.com/google/prompt-to-prompt>PROMPT-TO-PROMPT IMAGE EDITING
- WITH CROSS-ATTENTION CONTROL</a>
-</p>
-[3] <a href=https://github.com/design-edit/DesignEdit>DesignEdit: Unify Spatial-Aware Image Editing via Training-free Inpainting with a Multi-Layered Latent Diffusion Framework</a>
-</p>
+[1] <a href="https://github.com/MC-E/DragonDiffusion>DragonDiffusion">DragonDiffusion: Enabling Drag-style Manipulation on Diffusion Models</a></p>
+[2] <a href=https://github.com/google/prompt-to-prompt>PROMPT-TO-PROMPT IMAGE EDITING WITH CROSS-ATTENTION CONTROL</a></p>
+[3] <a href=https://github.com/Stability-AI/generative-models>** SV3D: Novel Multi-view Synthesis and 3D Generation from a Single Image using Latent Video Diffusion **</a></p>
 
 
 ## 📜 Citation  
