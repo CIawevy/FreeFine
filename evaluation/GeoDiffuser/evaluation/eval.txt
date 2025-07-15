@@ -1,0 +1,10 @@
+# md + warp loss
+python3 -m evaluation.image_fidelity --exp_root ./ui_outputs/large_scale_study_all/large_scale_study_dataset_metrics_2/Translation_2D/ --metric "md"
+
+
+# user study
+python3 -m evaluation.evaluate_study --csv_file ./ui_outputs/csv_user_data/Pilot\ User\ Study\ -\ with\ coordinates_March\ 6\,\ 2024_15.59.csv
+
+
+# lpips + clip + IF
+python3 -m evaluation.image_fidelity --exp_root ./ui_outputs/large_scale_study_all/large_scale_study_dataset_metrics_2/Translation_2D/ --metric "lpips"

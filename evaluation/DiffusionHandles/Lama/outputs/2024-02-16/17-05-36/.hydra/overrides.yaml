@@ -1,0 +1,3 @@
+- model.path=/home/ANT.AMAZON.COM/mijie/Documents/Research/ECCV24/lama/LaMa_models/lama-places
+- indir=/home/ANT.AMAZON.COM/mijie/Documents/Research/ECCV24/lama/data_for_lama_RGB
+- outdir=/home/ANT.AMAZON.COM/mijie/Documents/Research/ECCV24/lama/lama_outputs

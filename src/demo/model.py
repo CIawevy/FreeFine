@@ -1088,7 +1088,7 @@ class FreeFinePipeline(StableDiffusionPipeline):
     def FreeFine_background_generation(self, ori_img, ori_mask, guidance_text,
                                        guidance_scale, eta, end_step=10, num_step=50, start_step=25,
                                        share_attn=True, method_type='tca', local_text_edit=True, local_perturbation=True, verbose=True, seed=42,
-                                       return_intermediates=False, end_scale=0.5, latent_blended=True, blend_range=(0,40),):
+                                       return_intermediates=False, end_scale=0.5, latent_blended=False, blend_range=(0,40),):
         seed_everything(seed)
         ori_mask = self.mask_reduce_dim(ori_mask)
         # DDIM INVERSION
@@ -1437,7 +1437,6 @@ class FreeFinePipeline(StableDiffusionPipeline):
             #constrain area is used to avoid overlapping dilation with other existing objects
             if not reduce_inp_artifacts:
                 #ddpm region == completion area
-                assert cons_area is not None,'for auto draw better use cons area '
                 shifted_mask_tensor = self.prepare_tensor_mask(shifted_mask, sup_res_w, sup_res_h)
                 ori_mask_tensor = self.prepare_tensor_mask(ori_mask, sup_res_w, sup_res_h)
                 flexible_region = self.prepare_tensor_mask(draw_mask, sup_res_w, sup_res_h) * (1-shifted_mask_tensor)
@@ -1452,7 +1451,7 @@ class FreeFinePipeline(StableDiffusionPipeline):
                     self.temp_view(complete_region_tensor.cpu().numpy(), 'disturb region')
             else:
                 #ddpm region = completion area + background inpainting blending area, to reduce artifacts
-                assert cons_area is not None, 'for auto draw better use cons area '
+                assert cons_area is not None, 'for auto artifact expansion use cons area '
                 dil_ori_mask = self.dilate_mask(ori_mask, 30)
                 dil_mask_tensor = self.prepare_tensor_mask(dil_ori_mask, sup_res_w, sup_res_h)
                 cons_area_tensor = self.prepare_tensor_mask(cons_area, sup_res_w, sup_res_h)
@@ -1472,6 +1471,7 @@ class FreeFinePipeline(StableDiffusionPipeline):
         else:
             # draw mask is not provided, which means no need to consider structure completion
             if not reduce_inp_artifacts:
+                assert cons_area is not None, 'for auto draw better use cons area '
                 #ddpm region is a surrounding dilation boundary
                 dil_tgt_mask = self.dilate_mask(shifted_mask, 15)
                 dil_tgt_mask_tensor = self.prepare_tensor_mask(dil_tgt_mask, sup_res_w, sup_res_h)
@@ -1487,6 +1487,7 @@ class FreeFinePipeline(StableDiffusionPipeline):
                 local_var_region_tensor = complete_region_tensor
 
             else:
+                assert cons_area is not None, 'for auto draw better use cons area '
                 dil_tgt_mask = self.dilate_mask(shifted_mask, 15)
                 dil_ori_mask = self.dilate_mask(ori_mask, 30) #the same as background gen dilation factor
                 dil_mask_tensor = self.prepare_tensor_mask(dil_ori_mask, sup_res_w, sup_res_h)

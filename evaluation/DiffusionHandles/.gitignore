@@ -1,0 +1,9 @@
+__pycache__
+
+.vscode
+
+test/results
+
+webapp/results
+
+**/.ipynb_checkpoints

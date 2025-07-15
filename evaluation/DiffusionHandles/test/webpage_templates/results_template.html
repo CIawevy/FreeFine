@@ -1,0 +1,57 @@
+<!-- BEGIN: results_template.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Diffusion Handles Test Set Results</title>
+</head>
+<style>
+table { 
+    table-layout:fixed;
+    width:100%;
+}
+img {
+    max-height:100%;
+    max-width:100%;
+}
+thead th {
+    top: 0;
+    position: sticky;
+    z-index: 20;
+    background-color: white;
+}
+</style>
+<body>
+    <table>
+        <thead>
+            <tr>
+                <th>Input</th>
+                <th>Mask</th>
+                <th>Depth</th>
+                <th>Background</th>
+                <th>Bg. Depth</th>
+                <th>Inverted</th>
+                <th>Edit</th>
+                <th>Edit Disparity</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in items %}
+            <tr>
+                <td><img src="{{ item.input_url }}"></td>
+                <td><img src="{{ item.mask_url }}"></td>
+                <td><img src="{{ item.depth_url }}"></td>
+                <td><img src="{{ item.bg_url }}"></td>
+                <td><img src="{{ item.bg_depth_url }}"></td>
+                <td><img src="{{ item.inverted_url }}"></td>
+                <td><img src="{{ item.edit }}"></td>
+                <td><img src="{{ item.edit_disp_url }}"></td>
+                {% if item.show_denoising_steps == true %}
+                <td><a href="{{ item.denoising_steps_url }}">Denoising Steps</a></td>
+                {% endif %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
+<!-- END: results_template.html -->

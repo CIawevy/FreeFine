@@ -5,7 +5,7 @@
 
 
 
-**Official Implementation of ICCV 2025 Submission** | [Project Page]() | [arXiv Paper]() | [GeoBench Dataset]()  
+**Official Implementation of ICCV 2025 Accepted Paper** | [Project Page](https://github.com/CIawevy/FreeFine) | [arXiv Paper]() | [GeoBench Dataset]()  
 
 ---
 
@@ -16,33 +16,27 @@ Unlike existing diffusion-based editing methods that struggle with large/complex
 ![Pipeline](assets/pipeline.png)
 
 
-## 📢 News & Updates                                                                                              
-**2025-07-15**  
-🚀 Codebase released with:  
-- Pre-trained models for all GeoBench scenarios  
-- Jupyter notebook tutorials  
-- Windows/Linux compatibility patches  
+## 📢 News & Updates  
 
-**2025-06-30**  
-🏆 Accepted to **ICCV 2025**! Paper [arXiv link]() now available  
-
-**2025-03-02**  
-📊 Submited to **ICCV 2025**!
+**2025-07-20**  
+📜 Paper [arXiv link](https://arxiv.org/abs/xxxx.xxxx) now available  
 
 
-# 🌟 Extended Applications
-Our algorithm’s versatility allows it to tackle diverse tasks beyond its core functionality. Here, we demonstrate its effectiveness in several challenging scenarios.
-### **Fine-grained Partial Editing**  
-![Fine-grained Partial Editing](assets/Partial-edit-0.png)
-![Fine-grained Partial Editing](assets/Partial-edit-2.png)
+**2025-07-20**  
+🚀 **Full Project Open-Source Release**  
+We're thrilled to make the entire FreeFine ecosystem publicly available, including:  
+- 📊 GeoBench benchmark dataset (2D/3D geometric editing scenarios)  
+- 📈 Evaluation code for quantitative performance testing  
+- ⚙️ Complete inference codebase for end-to-end editing pipelines  
+- 📓 Interactive Jupyter notebook demos (step-by-step tutorials)  
+- 🖥️ User-friendly Gradio interface (no-code visual editing)  
 
-### **Appearance Transfer**
-![APT](assets/Appearance-transfer-2.png)
-![APT](assets/Appearance-transfer-0.png)
 
-### **Cross-Image Composition**
-![CIC](assets/Cross-image-composition-0.png)
-![CIC](assets/Cross-image-composition-2.png)
+**2025-06-26**  
+🏆 FreeFine accepted to **ICCV 2025**!  
+
+
+
 ## 🛠️ Installation  
 
 - Python >= 3.8 , PyTorch >= 2.0.1
@@ -96,7 +90,7 @@ cd jupyter_demo
 ```
 Inference & Eval
 ```bash
-python Eval/inference.py
+python FreeFine/inference.py
 ```
 
 # 📚 Relate Repos

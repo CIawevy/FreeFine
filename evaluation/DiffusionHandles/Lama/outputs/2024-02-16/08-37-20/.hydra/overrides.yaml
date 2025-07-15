@@ -1,0 +1,4 @@
+- refine=True
+- model.path=/home/ANT.AMAZON.COM/mijie/Documents/Research/ECCV24/lama/big-lama
+- indir=/home/ANT.AMAZON.COM/mijie/Documents/Research/ECCV24/lama/test_images
+- outdir=/home/ANT.AMAZON.COM/mijie/Documents/Research/ECCV24/lama/paper_outputs
