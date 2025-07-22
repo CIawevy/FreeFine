@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-sys.path.append('/data/Hszhu/Reggio')
+sys.path.append('/data/Hszhu/FreeFine')
 # from simple_lama_inpainting import SimpleLama
 # from lama import lama_with_refine
 from src.demo.model import FreeFinePipeline

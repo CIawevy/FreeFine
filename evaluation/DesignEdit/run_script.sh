@@ -5,4 +5,4 @@ conda activate DesignEdit
 cd /data/Hszhu/DesignEdit/
 
 
-torchrun --nproc_per_node=6 model_infer_para.py
+torchrun --nproc_per_node=6 geobench_eval.py

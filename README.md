@@ -1,3 +1,6 @@
+# **Notice**: 
+This repository is currently under active development. Some features, such as the evaluation code, GeoBench benchmark, and the Gradio demo, are still in progress. We appreciate your patience and understanding as we work to complete these components. Stay tuned for updates!
+
 # FreeFine: Training-Free Diffusion for Geometric Image Editing
 
 
@@ -18,11 +21,11 @@ Unlike existing diffusion-based editing methods that struggle with large/complex
 
 ## 📢 News & Updates  
 
-**2025-07-20**  
+**2025-07-31**  
 📜 Paper [arXiv link](https://arxiv.org/abs/xxxx.xxxx) now available  
 
 
-**2025-07-20**  
+**2025-07-31**  
 🚀 **Full Project Open-Source Release**  
 We're thrilled to make the entire FreeFine ecosystem publicly available, including:  
 - 📊 GeoBench benchmark dataset (2D/3D geometric editing scenarios)  

@@ -1,8 +1,8 @@
 from vis_utils import  temp_view,temp_view_img,save_img,save_mask
 import sys
 # from xml.dom.minidom import Notation
-sys.path.append("/data/Hszhu/GeoDiffuser/")
-from utils.ui_utils import get_transformed_mask, get_depth, get_mask, get_edited_image
+sys.path.append("/data/Hszhu/GeoDiffuser/GeoDiffuser")
+from utils.ui_utils2 import get_transformed_mask, get_depth, get_mask, get_edited_image
 from PIL import Image
 import numpy as np
 import json
