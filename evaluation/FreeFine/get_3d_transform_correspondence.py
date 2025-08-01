@@ -189,9 +189,9 @@ def resize_image_and_get_constant_depth(img):
 
 # Read input image and convert to numpy array
 
-annotations_path = "/data/Hszhu/dataset/Geo-Bench-3D/annotations.json"
-dst_base = "/data/Hszhu/dataset/Geo-Bench-3D/"
-coarse_dir = osp.join(dst_base, f"coarse3d_depth_anything_no_blend")
+annotations_path = "/data/Hszhu/GeoBenchMeta/annotations_3d.json"
+dst_base = "/data/Hszhu/GeoBenchMeta/Geo-Bench-3D/"
+coarse_dir = osp.join(dst_base, f"coarse3d_depth_anything_blended")
 mesh_mask_dir = osp.join(dst_base, f"mesh_mask")
 md_mask_dir = osp.join(dst_base, f"md_mask")
 corre_point_dir = osp.join(dst_base, f"correspondence")
@@ -210,7 +210,7 @@ for image_idx in data.keys():
         for sub_edit_idx in edit_indices[edit_idx].keys():
             # inp_back_ground = cv2.cvtColor(cv2.imread(osp.join(dst_base,f'inp_img_blended/{image_idx}/{edit_idx}/inp_img.png')),cv2.COLOR_BGR2RGB )  # bgr
             inp_back_ground = cv2.cvtColor(
-                cv2.imread(osp.join(dst_base, f'inp_img_no_blend/{image_idx}/{edit_idx}/inp_img.png')),
+                cv2.imread(osp.join(dst_base, f'inp_img_blended/{image_idx}/{edit_idx}/inp_img.png')),
                 cv2.COLOR_BGR2RGB)  # bgr
             orig_path = edit_indices[edit_idx][sub_edit_idx]["ori_img_path"]
             mask_path = edit_indices[edit_idx][sub_edit_idx]["ori_mask_path"]

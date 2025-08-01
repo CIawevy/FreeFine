@@ -52,7 +52,7 @@ class GeoData(Dataset):
         # mask[0:-1:2] = orig_mask
         # mask[1::2] = tgt_mask
         edit_param = inst["edit_param"]
-        base_path = "/work/nvme/bcgq/yimingg8/Geo-Bench-2D'/target_mask"
+        base_path = "/work/nvme/bcgq/yimingg8/Geo-Bench-3D'/target_mask"
         store_dir = os.path.relpath(inst["tgt_mask_path"], base_path)
         store_dir = f"result_SC/{store_dir}"
         return orig_img,  f"image of {inst['obj_label']}",  tgt_mask, orig_mask, tgt_mask, edit_param, store_dir
@@ -73,7 +73,7 @@ class GeoData(Dataset):
 
 # Setting up the argument parser
 parser = argparse.ArgumentParser(description='Run the drag operation.')
-parser.add_argument('--data_dir', type=str, default='/work/nvme/bcgq/yimingg8/Geo-Bench-2D') # OR 'drag_data/dragbench-sr/'
+parser.add_argument('--data_dir', type=str, default='/work/nvme/bcgq/yimingg8/Geo-Bench-3D') # OR 'drag_data/dragbench-sr/'
 args = parser.parse_args()
 
 

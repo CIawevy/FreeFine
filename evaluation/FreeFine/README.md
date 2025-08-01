@@ -1,9 +1,60 @@
 
 # 📊 2D Eval 
- We provide the scripts for evaluating GeoBench-2d and GeoBench-3d for FreeFine and all the Baselines. Please See [EVAL](./evaluation/README.md) for more details.
+## Steps to Run 2D Evaluation
 
-# 📊 3D Eval 
- We provide the scripts for evaluating GeoBench-2d and GeoBench-3d for FreeFine and all the Baselines. Please See [EVAL](./evaluation/README.md) for more details.
+### Method 1: Running Commands Manually
+Before starting, ensure you have modified all relevant paths (e.g., checkpoint paths) in the Python scripts to your local paths.
+
+- **Step 1: Batch inference to generate background**
+```bash
+conda activate FreeFine
+cd /data/Hszhu/FreeFine/evaluation/FreeFine/
+FREE_PORT=$(python -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()')
+torchrun --nproc_per_node=8 --master-port $FREE_PORT freefine_batch_infer_bggen_2d.py
+```
+- **Step 2: batch inference to coarsely edit and re-generate**
+```bash
+torchrun --nproc_per_node=8 --master-port $FREE_PORT freefine_batch_infer_2d.py
+```
+
+### Method 2: Using the Script
+Before running the script, make sure to modify all relevant paths in `run_script_2D.sh` to your local paths. Then execute the following command:
+```bash
+bash run_script_2D.sh
+```
+
+# 🧊 3D Eval
+## Steps to Run 3D Evaluation
+
+### Default Step: Run batch inference for final 3D refinement
+You can directly run this step using the pre-generated data in the `Geo-Bench-3D` folder to save time and resources.
+```bash
+conda activate FreeFine
+cd /data/Hszhu/FreeFine/evaluation/FreeFine/
+FREE_PORT=$(python -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()')
+torchrun --nproc_per_node=8 --master-port $FREE_PORT Eval/freefine_batch_infer_3d_depth.py
+```
+### Reproduce the full process (Optional)
+If you wish to reproduce the entire process from scratch, follow these additional steps before the default step.
+- **Step 1: Batch inference to generate background**
+```bash
+conda activate FreeFine
+cd /data/Hszhu/FreeFine/evaluation/FreeFine/
+FREE_PORT=$(python -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()')
+torchrun --nproc_per_node=8 --master-port $FREE_PORT freefine_batch_infer_bggen_3d.py
+```
+- **Step 2: Run depth-based 3D transform** :
+This step is modified from Geodiffuser's code base. We use Depth Anything and PyTorch3D to estimate depth and directly transform the image based on that. After this step, we will get a coarse_edit_3d_img (which is sparse and troublesome) and the correspondence map for Mean - Distance (MD) calculation.
+```bash
+conda activate GeoDiffuser
+python get_3d_transform_correspondence.py # Replace with your own checkpoint path and other parameters in the file
+```
+- **Step 3: batch inference to re-generate**
+```bash
+torchrun --nproc_per_node=8 --master-port $FREE_PORT freefine_batch_infer_2d.py
+```
+
+
 
  ## 🛠️ Installation  
 ```bash

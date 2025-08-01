@@ -358,3 +358,18 @@ def read_and_resize_mask(ori_mask_path,dsize=(512,512)):
     ori_mask = cv2.resize(ori_mask, dsize=dsize, interpolation=cv2.INTER_NEAREST)
     ori_mask[ori_mask>0] = 1
     return ori_mask
+def read_and_resize_mask_with_dilation(ori_mask_path, dsize=(512, 512), dilation_factor=None, forbit_area=None):
+    # return 3-channel mask ndarray
+    ori_mask = cv2.imread(ori_mask_path)
+    ori_mask = cv2.resize(ori_mask, dsize=dsize, interpolation=cv2.INTER_NEAREST)
+    ori_mask[ori_mask > 0] = 1
+
+    # 初始化 dil_ori_mask 为 ori_mask
+    dil_ori_mask = ori_mask
+
+    if dilation_factor is not None:
+        dil_ori_mask = dilate_mask(ori_mask, dilation_factor)
+    if forbit_area is not None:
+        dil_ori_mask = np.where(forbit_area, 0, dil_ori_mask)
+
+    return dil_ori_mask
