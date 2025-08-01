@@ -8,7 +8,7 @@ Before starting, ensure you have modified all relevant paths (e.g., checkpoint p
 - **Step 1: Batch inference to generate background**
 ```bash
 conda activate FreeFine
-cd /data/Hszhu/FreeFine/evaluation/FreeFine/
+cd FreeFine/evaluation/FreeFine/
 FREE_PORT=$(python -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()')
 torchrun --nproc_per_node=8 --master-port $FREE_PORT freefine_batch_infer_bggen_2d.py
 ```
@@ -30,7 +30,7 @@ bash run_script_2D.sh
 You can directly run this step using the pre-generated data in the `Geo-Bench-3D` folder to save time and resources.
 ```bash
 conda activate FreeFine
-cd /data/Hszhu/FreeFine/evaluation/FreeFine/
+cd FreeFine/evaluation/FreeFine/
 FREE_PORT=$(python -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()')
 torchrun --nproc_per_node=8 --master-port $FREE_PORT Eval/freefine_batch_infer_3d_depth.py
 ```
@@ -39,7 +39,7 @@ If you wish to reproduce the entire process from scratch, follow these additiona
 - **Step 1: Batch inference to generate background**
 ```bash
 conda activate FreeFine
-cd /data/Hszhu/FreeFine/evaluation/FreeFine/
+cd FreeFine/evaluation/FreeFine/
 FREE_PORT=$(python -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()')
 torchrun --nproc_per_node=8 --master-port $FREE_PORT freefine_batch_infer_bggen_3d.py
 ```
