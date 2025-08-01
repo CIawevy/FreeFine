@@ -1,3 +1,4 @@
+
 # **Notice**: 
 Note: Code is still in maintenance. Releasing initial version.
 
@@ -11,7 +12,7 @@ Note: Code is still in maintenance. Releasing initial version.
       alt="FreeFine Project Page"
     />
   </a>
-  <a href="https://arxiv.org/pdf/2507.23300">
+  <a href="https://www.arxiv.org/abs/2507.23300">
     <img
       src="https://img.shields.io/badge/FreeFine-Paper-red?logo=arxiv&logoColor=red"
       alt="FreeFine Paper on arXiv"
@@ -36,7 +37,7 @@ Note: Code is still in maintenance. Releasing initial version.
     />
   </a>
 </p>
-<!-- --- -->
+
 
 ![teaser](assets/teaser.png)
 
@@ -63,7 +64,7 @@ Note: Code is still in maintenance. Releasing initial version.
   - ⚙️ Complete inference codebase for end-to-end editing pipelines  
   - 📓 Interactive Jupyter notebook demos (step-by-step tutorials)  
   - 🖥️ User-friendly Gradio interface (no-code visual editing)
-- **2025-07-31**: Our [Arxiv Paper](https://arxiv.org/pdf/2507.23300) is now available!  
+- **2025-07-31**: Our [Arxiv Paper](https://www.arxiv.org/abs/2507.23300) is now available!  
 - **2025-06-26**: 🎉FreeFine has been accepted to **ICCV 2025**! 🎉
 
 ## 📌 TODO
@@ -73,7 +74,7 @@ Note: Code is still in maintenance. Releasing initial version.
 - [x] Evaluation code platform
 - [ ] Jupyter notebook demos  
 - [ ] Gradio interface demos
-- [ ] Adaption to Stronger Baseline like SDXL and DIT
+- [ ] Adapt to stronger baselines such as SDXL and DIT
   
   
 ## 🛠️ Installation  
@@ -85,7 +86,7 @@ conda create -n FreeFine python=3.9.19 -y
 conda activate FreeFine
 pip install -r requirements.txt
 ```
-- Install [SV3D](https://github.com/Stability-AI/generative-models) for 3D-editing 
+- Install [SV3D](https://github.com/Stability-AI/generative-models) (Optional for 3D-editing)  
 ```bash
 # Set up SV3D environment (separate from main project)
 cd generative-models 
@@ -94,21 +95,14 @@ conda activate pt2
 pip3 install -r requirements/pt2.txt
 pip3 install . #Install sgm
 ```
-- Install [DepthAnything](https://github.com/Stability-AI/generative-models) and Pytorch3D for 3D-editing 
+- Install [DepthAnything](https://github.com/Stability-AI/generative-models) and [Pytorch3D](https://github.com/facebookresearch/pytorch3d) (Optional for 3D-editing)  
 ```bash
 pip install depth-anything
 conda activate FreeFine
 pip3 install --no-index --no-cache-dir pytorch3d -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py310_cu121_pyt210/download.html
 ```
 
-- Evaluation
-```bash
-cd generative-models 
-conda create -n pt2 python=3.10.0 -y
-conda activate pt2
-pip3 install -r requirements/pt2.txt
-pip3 install . #Install sgm
-```
+
 # ⏬ Download Models 
 - Models will automatically download via Hugging Face's `diffusers` on first run. For offline use or custom installations:
 ```bash
@@ -121,22 +115,24 @@ cd FreeFine/generative-models
 mkdir -p checkpoints  # Creates directory if missing
 mv /path/to/downloaded/sv3d/* checkpoints/
 ```
+# 📊 Eval
+ We provide the scripts for evaluating GeoBench-2d and GeoBench-3d for FreeFine and all the Baselines. Please See [EVAL](./evaluation/README.md) for more details.
+
 
 
 
 # 🚀 Quick Start 
-Run On Web Interface
-```bash
-python app.py  # Launch Gradio UI  
-```
-Run on Jupyter Notebooks
+## Run on Jupyter Notebooks
 ```bash
 cd jupyter_demo
 ```
-Inference & Eval
-```bash
-python FreeFine/inference.py
-```
+## Run On Web Interface 🚧
+ ⚠️ The web interface is currently under construction. Once ready, start it with:
+ ```bash
+python app.py  
+ ```
+
+
 
 # 📚 Relate Repos
 [1] <a href="https://github.com/MC-E/DragonDiffusion>DragonDiffusion">**DragonDiffusion: Enabling Drag-style Manipulation on Diffusion Models**</a></p>

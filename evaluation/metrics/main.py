@@ -9,7 +9,7 @@ from VBench.background_consistency import calculate_bgc
 from VBench.subject_consistency import calculate_subc
 from wrap_error import calculate_we
 from MD.mean_distance import calculate_md
-
+import os
 
 degrees = {
     1: {
@@ -55,38 +55,60 @@ def parse_data_rotate(data):
                 ins.pop(p)
     return data
 
-def parse_data_mesh(data):
+def parse_data_3d(data):
     for da_n, da in data.items():
         ins_data = da['instances']
         for ins_id, ins in ins_data.items():
             for case_id, gt_data in ins.items():
-                data[da_n]['instances'][ins_id][case_id]['tgt_mask_path'] = \
-                    gt_data['tgt_mask_path'].replace("target_mask", "mesh_mask")
-                data[da_n]['instances'][ins_id][case_id]['coarse_input_path'] = \
-                    gt_data['coarse_input_path'].replace("coarse_img", "coarse3d_depth_anything")
+                data[da_n]['instances'][ins_id][case_id]['tgt_mask_path'] = gt_data['target_mask_0']
+                    
+                data[da_n]['instances'][ins_id][case_id]['coarse_input_path'] = gt_data['coarse_input_path_0']
+                    
     return data
-
+def make_absolute_path(data, base_dir, gen_img_key):
+    for da_n, da in data.items():
+        ins_data = da['instances']
+        for ins_id, ins in ins_data.items():
+            for case_id, gt_data in ins.items():
+                path_keys = [
+                    "ori_img_path", 
+                    "coarse_input_path", 
+                    "ori_mask_path", 
+                    "tgt_mask_path", 
+                    gen_img_key  
+                ]
+                for key in path_keys:
+                    if key in gt_data:
+                        gt_data[key] = os.path.join(base_dir, gt_data[key])
+                        
+    return data
 def main():
     parser = argparse.ArgumentParser(description="Evaluation")
-    parser.add_argument("--path", required=True, help="输入数据json的路径")
-    parser.add_argument("--level", default=0, type=int, help="待测试的编辑程度")
-    parser.add_argument("--task", default='100111111', type=str, help="具体计算哪几个指标")
-    parser.add_argument("--image_label", default="gen_img_path", help="生成图片路径对应的key")
-    parser.add_argument("--no_rotate", action='store_true', help="是否排除掉旋转")
-    parser.add_argument("--mesh", action='store_true', help="是否使用mesh的mask")
-    parser.add_argument("--fid_path", default="/data/Hszhu/dataset/Geo-Bench/source_img_full_v2", help="计算FID时的真实图片路径")
+    parser.add_argument("--path", required=True, help="Path to the input JSON file containing generated results")  
+    parser.add_argument("--level", default=0, type=int, help="Edit level to test (0=All, 1=Easy, 2=Medium, 3=Hard)")  
+    parser.add_argument("--task", default='100111111', type=str, help="9-digit string to enable metrics (1=compute, 0=skip). Order: FID, IRS, HPS, BGC, SUBC, WRAP_E, MD, FID_DINO, FID_KD")  
+    parser.add_argument("--gen_img_key", default="gen_img_path", help="JSON key for generated image paths")
+    parser.add_argument("--no_rotate", action='store_true', help="Exclude rotation-related edit cases")  
+    parser.add_argument("--3d", action='store_true', help="Use 3D mesh-based masks for 3D evaluation")  
+    parser.add_argument("--fid_path", default="/data/Hszhu/dataset/Geo-Bench/source_img_full_v2", help="Path to real images for FID calculation") 
+    parser.add_argument("--use_relative_path", action='store_true', help="Convert relative paths to absolute paths using --base_dir")
+    parser.add_argument("--base_dir", default="/data/Hszhu/GeoBenchMeta", help="Base directory for relative path conversion (required if --use_relative_path is enabled)")
     args = parser.parse_args()
 
     file_path = args.path
-    image_label = args.image_label
+    image_label = args.gen_img_key
     data = json.load(open(file_path))
     level = args.level
     if level:
         data = parse_data_level(data, level)
     if args.no_rotate:
         data = parse_data_rotate(data)
-    if args.mesh:
-        data = parse_data_mesh(data)
+    if args.3d: 
+        data = parse_data_3d(data)   
+    
+    if args.use_relative_path:
+        assert args.base_dir is not None, "--base_dir must be specified when --use_relative_path is enabled"
+        data = make_absolute_path(data, args.base_dir, image_label)  
 
     result = {}
     if int(args.task[0]):
