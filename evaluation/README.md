@@ -1,6 +1,4 @@
 # Evaluation
-
-# **Notice**: Note: Code is still in maintenance...
  ## Data Preparation
  ### GeoBench Dataset
 - **Download**: We release two versions of our GeoBench dataset:
