@@ -78,43 +78,36 @@ Note: Code is still in maintenance. Releasing initial version.
   
   
 ## 🛠️ Installation  
-- Python >= 3.8 , PyTorch >= 2.0.1
 ```bash
 git clone https://github.com/CIawevy/FreeFine.git
 cd FreeFine
-conda create -n FreeFine python=3.9.19 -y
+conda create -n FreeFine python=3.10.13 -y
 conda activate FreeFine
-pip install -r requirements.txt
+pip install -r requirements.txt 
 ```
-- Install [SV3D](https://github.com/Stability-AI/generative-models) (Optional for 3D-editing)  
+- Install [Pytorch3D](https://github.com/facebookresearch/pytorch3d) (Optional for depth-based 3D-editing) 
+```
+pip install iopath>=0.1.10 -i https://pypi.org/simple
+pip install --no-index --no-cache-dir git+https://github.com/facebookresearch/pytorch3d.git@stable -i https://pypi.org/simple
+```
+
+- Install [SV3D](https://github.com/Stability-AI/generative-models) (Optional for SV3D-based 3D-editing)  
+
 ```bash
-# Set up SV3D environment (separate from main project)
+# Set up SV3D environment 
 cd generative-models 
 conda create -n pt2 python=3.10.0 -y
 conda activate pt2
 pip3 install -r requirements/pt2.txt
 pip3 install . #Install sgm
 ```
-- Install [DepthAnything](https://github.com/Stability-AI/generative-models) and [Pytorch3D](https://github.com/facebookresearch/pytorch3d) (Optional for 3D-editing)  
-```bash
-pip install depth-anything
-conda activate FreeFine
-pip3 install --no-index --no-cache-dir pytorch3d -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py310_cu121_pyt210/download.html
-```
 
-
-# ⏬ Download Models 
-- Models will automatically download via Hugging Face's `diffusers` on first run. For offline use or custom installations:
+# ⏬ Download Models   
+- Modify parameters (e.g., local paths, HF token) in `scripts/download_models.sh` as needed, then run the following command to download models:
 ```bash
 bash scripts/download_models.sh
 ```
-- You should download SV3D models from [SV3D Hugging Face Repository](https://huggingface.co/stabilityai/sv3d/tree/main)
-```bash
-#move them to the correct location after download
-cd FreeFine/generative-models
-mkdir -p checkpoints  # Creates directory if missing
-mv /path/to/downloaded/sv3d/* checkpoints/
-```
+
 # 📊 Eval
  We provide the scripts for evaluating GeoBench-2d and GeoBench-3d for FreeFine and all the Baselines. Please See [EVAL](./evaluation/README.md) for more details.
 
@@ -149,5 +142,3 @@ python app.py
   booktitle={ICCV}, 
   year={2025}
 }
-
-
