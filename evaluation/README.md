@@ -8,7 +8,7 @@
 
 - **Run the following command to download the `GeoBenchMeta` dataset with `huggingface_hub`**:
 ```bash
- bash /mnt/bn/ocr-doc-nas/zhuhanshen/iccv/FreeFine/scripts/download_dataset.sh
+ bash FreeFine/scripts/download_dataset.sh
 ```
 - **Run the following command to download the `GeoBenchMeta` dataset with `aria2` and `hfd.sh`**:
 ```bash
