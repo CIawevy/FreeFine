@@ -93,14 +93,7 @@ python main.py \
     --base_dir /data/Hszhu/GeoBenchMeta
  ```
 
- <!-- ### Parameter Explanation
-  - **`--path`** (required): Path to the input data JSON file (required), pointing to the JSON file containing generated results (e.g., `GeoBenchMeta/Geo-Bench-2D/generated_results_freefine.json`).
-  - **`--level`** (default=0): Editing intensity level to test (integer), used to filter cases with specific editing strengths (1: lightly, 2: moderately, 3: heavily; default 0 means no filtering, i.e., all cases).
-  - **`--task`** (default='100111111'): Flag string to control which metrics to compute (9-digit string, where each digit corresponds to a metric: 1 for compute, 0 for skip). Order: `[FID, IRS, HPS, BGC, SUBC, WRAP_E, MD, FID_DINO, FID_KD]`.
-  - **`--image_label`** (default="gen_img_path"): Key name of the generated image path in the JSON file (e.g., if the generated image path is stored in the `"generated_image"` field, set to `--image_label generated_image`).
-  - **`--no_rotate`** (flag): Whether to exclude rotation cases (adding this parameter indicates excluding rotation-edited cases).
-  - **`--mesh`** (flag): Whether to use mesh masks (adding this parameter replaces `target_mask` with `mesh_mask` and adjusts the `coarse_input_path`).
-  - **`--fid_path`** (default="GeoBenchMeta/Geo-Bench-2D/source_img_full_v2"): Path to real images used for FID calculation (default points to the full original image directory of GeoBench). -->
+
 ## Parameter Explanation
 
 | Argument              | Default                          | Description                                                                 |
@@ -109,7 +102,7 @@ python main.py \
 | `level`             | `0`                              | Edit level to test (0=All, 1=Easy, 2=Medium, 3=Hard).                       |
 | `task`              | `'100111111'`                    | 9-digit string to enable metrics (1=compute, 0=skip). Order: FID, IRS, HPS, BGC, SUBC, WRAP_E, MD, FID_DINO, FID_KD. |
 | `gen_img_key`       | `"gen_img_path"`                 | JSON key where generated image paths are stored. |
-| `3d`                | (flag)                           | Use 3D mesh-based masks for 3D evaluation (replaces `target_mask` with `mesh_mask` and adjusts `coarse_input_path`). |
+| `3d`                | (flag)                           | Enable evaluation for 3D editing tasks when activated. |
 | `fid_path`          | `/data/Hszhu/GeoBenchMeta/Geo-Bench-2D/source_img_full_v2` | Path to real images for FID calculation. |
-| `use_relative_path` | (flag)                           | Convert relative paths in the JSON to absolute paths using `--base_dir`.   |
-| `base_dir`          | `/data/Hszhu/GeoBenchMeta`       | Base directory for relative path conversion (required if `--use_relative_path` is enabled). |
+| `use_relative_path` | (flag)                           | Enable if the generated results JSON file uses relative paths |
+| `base_dir`          | `/data/Hszhu/GeoBenchMeta`       | Base directory for relative path conversion (required if `use_relative_path` is enabled). |
