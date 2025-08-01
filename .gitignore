@@ -1,0 +1,5 @@
+# 忽略临时下载脚本
+scripts/download_models_temp.sh
+
+# 忽略模型存储目录（及其所有内容）
+checkpoints/
