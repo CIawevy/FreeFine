@@ -1,6 +1,0 @@
-gradio_imageslider
-gradio==4.14.0
-torch
-torchvision
-opencv-python
-huggingface_hub

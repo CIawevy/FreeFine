@@ -1,0 +1,63 @@
+[33m578a188[m[33m ([m[1;36mHEAD -> [m[1;32mmain[m[33m)[m HEAD@{0}: reset: moving to 578a188
+[33mb4b4644[m HEAD@{1}: commit: updates
+[33ma48d29c[m HEAD@{2}: reset: moving to a48d29c0de3e876dda6836a4a2ea156f89e836cd
+[33m578a188[m[33m ([m[1;36mHEAD -> [m[1;32mmain[m[33m)[m HEAD@{3}: commit: updates
+[33m43e6a45[m[33m ([m[1;31morigin/main[m[33m)[m HEAD@{4}: reset: moving to HEAD~1
+[33m4d202b8[m HEAD@{5}: commit: updates
+[33m43e6a45[m[33m ([m[1;31morigin/main[m[33m)[m HEAD@{6}: commit: Update
+[33ma48d29c[m HEAD@{7}: commit (merge): updates
+[33m2d69c24[m HEAD@{8}: commit: updates
+[33mcd263bb[m HEAD@{9}: commit: updates
+[33ma2c9721[m HEAD@{10}: commit: remedy
+[33m2d5963f[m HEAD@{11}: commit: remedy
+[33m0952742[m HEAD@{12}: commit: remedy
+[33m4cec243[m HEAD@{13}: commit: remedy
+[33mfa48216[m HEAD@{14}: commit: remedy
+[33m007fadd[m HEAD@{15}: commit: remedy
+[33m9fef219[m HEAD@{16}: commit: remedy
+[33m23a8773[m HEAD@{17}: pull origin main: Merge made by the 'ort' strategy.
+[33m04933ec[m HEAD@{18}: reset: moving to HEAD
+[33m04933ec[m HEAD@{19}: merge origin/main: updating HEAD
+[33m04933ec[m HEAD@{20}: commit: remedy
+[33mde44827[m HEAD@{21}: commit: remedy
+[33m3db9a51[m HEAD@{22}: merge origin/main: updating HEAD
+[33m3db9a51[m HEAD@{23}: commit (amend): remedy
+[33m1cf948c[m HEAD@{24}: commit: remedy
+[33m661dec2[m HEAD@{25}: commit: First commit
+[33m96ea904[m HEAD@{26}: commit (amend): recent updates
+[33ma2ef04a[m HEAD@{27}: commit: recent updates
+[33m1990eda[m HEAD@{28}: commit: recent updates
+[33m0bd2713[m HEAD@{29}: commit: recent updates
+[33mee6a23d[m HEAD@{30}: commit: recent updates
+[33m218b5b4[m HEAD@{31}: commit: recent updates
+[33m55aa446[m HEAD@{32}: commit: recent updates
+[33m9c3e3d7[m HEAD@{33}: commit: recent updates
+[33m4c13bea[m HEAD@{34}: commit: recent updates
+[33m3de3450[m HEAD@{35}: commit: recent updates
+[33me355452[m HEAD@{36}: commit: (1)rasterization code for 3d mapping intergrated in My_app.py
+[33mbce17d8[m HEAD@{37}: commit: update img
+[33m75700c1[m HEAD@{38}: commit: update img
+[33m8d5003e[m HEAD@{39}: commit: update img
+[33m6883a9c[m HEAD@{40}: commit: update img
+[33m25388bc[m HEAD@{41}: commit: update ReadeMe
+[33mcb16200[m HEAD@{42}: commit: p3d rasterization pipeline updates
+[33md8e71a4[m HEAD@{43}: commit: code update
+[33m3190b86[m HEAD@{44}: commit: code update
+[33md95c70a[m HEAD@{45}: commit: update ReadMe.md
+[33mbb9a074[m HEAD@{46}: commit: update ReadMe.md
+[33mb6cdfa7[m HEAD@{47}: commit: update ReadMe.md
+[33m7a5a34f[m HEAD@{48}: commit: code and file update
+[33m8e7211e[m HEAD@{49}: commit: Update ReadMe.md
+[33m9e43877[m HEAD@{50}: commit: Grand updates for 3D operation:
+[33m4f629a2[m HEAD@{51}: commit: Grand updates for 3D operation:
+[33me2bc27f[m HEAD@{52}: commit: Grand updates!:
+[33m31fa67e[m HEAD@{53}: commit: Grand updates!:
+[33mf466acb[m HEAD@{54}: commit: bug fix
+[33m9afaa21[m HEAD@{55}: commit: update README
+[33m42abdb7[m HEAD@{56}: commit: update README
+[33m9d88149[m HEAD@{57}: commit: updates:
+[33m06ee897[m HEAD@{58}: commit: bug fix for rotation and resize
+[33m823ba53[m HEAD@{59}: commit: support resize & rotate geometric editing now
+[33m5b830f9[m HEAD@{60}: commit: update example
+[33ma245756[m HEAD@{61}: commit: update example
+[33m1f67ab5[m HEAD@{62}: clone: from https://github.com/CIawevy/Reggio.git

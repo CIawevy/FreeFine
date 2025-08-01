@@ -1,16 +1,32 @@
 # Evaluation
 
-# **Notice**: The evaluation code is currently under development. We kindly ask for your patience as we work towards its completion.
+# **Notice**: Note: Code is still in maintenance...
  ## Data Preparation
  ### GeoBench Dataset
- - **Download**: You can download the GeoBench dataset from the official source [provide the official download link here if available]. Alternatively, you can quickly access it through the Hugging Face dataset. Use the following code snippet to load the dataset:
- ```python
- # from datasets import load_dataset
- # dataset = load_dataset('your-geo-bench-dataset-name-on-huggingface')
+- **Download**: We release two versions of our GeoBench dataset:
+  - **[GeoBench](https://huggingface.co/datasets/CIawevy/GeoBench)**: This version is in Parquet format and is more convenient for data preview and loading.
+
+  - **[GeoBenchMeta](https://huggingface.co/datasets/CIawevy/GeoBenchMeta)**: This version is currently more recommended as it aligns with our evaluation codebase.
+
+- **Run the following command to download the `GeoBenchMeta` dataset with `huggingface-hub`**:
+```bash
+ bash /mnt/bn/ocr-doc-nas/zhuhanshen/iccv/FreeFine/scripts/download_dataset.sh
+```
+- **Run the following command to download the `GeoBenchMeta` dataset with `aria2` and `hfd.sh`**:
+```bash
+chmod a+x FreeFine/scripts/hfd.sh
+sudo apt update
+sudo apt install aria2
+bash FreeFine/scripts/download_dataset_hfd.sh
+```
+- **Easy loading `GeoBench`**
+```bash
+from datasets import load_dataset
+dataset = load_dataset("CIawevy/GeoBench")
  ```
- - **Data Structure**: The GeoBench dataset has the following directory structure:
+ - **Data Structure**: The GeoBenchMeta dataset has the following directory structure:
  ```
- # Geo-Bench/
+ # GeoBench/Meta
  # ├── annotations.json
  # ├── source_img/
  # │   ├── *.png

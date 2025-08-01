@@ -1,0 +1,408 @@
+[33mcommit 4d202b8fa453a29022de55aa5e6d9ca08245b732[m[33m ([m[1;36mHEAD -> [m[1;32mmain[m[33m)[m
+Author: zhuhanshen <zhuhanshen@bytedance.com>
+Date:   Fri Aug 1 17:19:41 2025 +0800
+
+    updates
+
+[33mcommit 43e6a45927d06d0c02cdc66f36a374c2214920e7[m[33m ([m[1;31morigin/main[m[33m)[m
+Author: zhuhanshen <zhuhanshen@bytedance.com>
+Date:   Wed Jul 23 00:46:05 2025 +0800
+
+    Update
+
+[33mcommit a48d29c0de3e876dda6836a4a2ea156f89e836cd[m
+Merge: 2d69c24 868088c
+Author: CIawevy <519511374@qq.com>
+Date:   Tue Jul 15 23:06:37 2025 +0800
+
+    updates
+
+[33mcommit 2d69c2405722681184ab5a7b52d108258ca7b082[m
+Author: CIawevy <519511374@qq.com>
+Date:   Tue Jul 15 23:02:49 2025 +0800
+
+    updates
+
+[33mcommit 868088c02fe529915aeb9e7c79e9e094422c38fd[m
+Author: Johannes <90709683+CIawevy@users.noreply.github.com>
+Date:   Tue Jul 15 22:58:21 2025 +0800
+
+    Delete .idea directory
+
+[33mcommit cd263bb9e6a49c8d0a2b771c61e150de6dd4ed26[m
+Author: CIawevy <519511374@qq.com>
+Date:   Tue Jul 15 22:56:15 2025 +0800
+
+    updates
+
+[33mcommit a2c9721ef366577d621ec8019e947a5d80fb8000[m
+Author: CIawevy <519511374@qq.com>
+Date:   Wed Apr 23 10:12:28 2025 +0800
+
+    remedy
+
+[33mcommit 2d5963fa22252d91fc4d3c9300acafdff0e9a8cf[m
+Author: CIawevy <519511374@qq.com>
+Date:   Mon Apr 21 02:25:23 2025 +0800
+
+    remedy
+
+[33mcommit 0952742dd92e2977bc418beefdb07e7beb518b75[m
+Author: CIawevy <519511374@qq.com>
+Date:   Mon Apr 21 01:54:45 2025 +0800
+
+    remedy
+
+[33mcommit 4cec243d23b10981f57206778418eb0ff9635248[m
+Author: CIawevy <519511374@qq.com>
+Date:   Fri Apr 18 19:38:27 2025 +0800
+
+    remedy
+
+[33mcommit fa48216b5edf76732999266ff673228c6171c9ac[m
+Author: CIawevy <519511374@qq.com>
+Date:   Fri Apr 18 19:22:26 2025 +0800
+
+    remedy
+
+[33mcommit 007fadd856b4e1698411dd634e42dfc6ee728248[m
+Author: CIawevy <519511374@qq.com>
+Date:   Fri Apr 18 19:22:17 2025 +0800
+
+    remedy
+
+[33mcommit 9fef219e481527f2f0c1efc3b76e20cb6f3c4a24[m
+Author: CIawevy <519511374@qq.com>
+Date:   Fri Apr 18 16:19:55 2025 +0800
+
+    remedy
+
+[33mcommit 23a87732ada1bd4764012a3f3add91d0495643b2[m
+Merge: 04933ec 45ae46b
+Author: CIawevy <519511374@qq.com>
+Date:   Fri Apr 18 16:12:30 2025 +0800
+
+    Merge branch 'main' of github.com:CIawevy/FreeFine
+
+[33mcommit 04933ec1fdde665986675dfbcff37bcc33634926[m
+Author: CIawevy <519511374@qq.com>
+Date:   Fri Apr 18 16:10:46 2025 +0800
+
+    remedy
+
+[33mcommit de4482763b71a3b912a5ffe5365bde101b06f406[m
+Author: CIawevy <519511374@qq.com>
+Date:   Fri Apr 18 16:10:38 2025 +0800
+
+    remedy
+
+[33mcommit 45ae46beb6f25371e36bd87cc405dcf14e51fae5[m
+Author: Johannes <90709683+CIawevy@users.noreply.github.com>
+Date:   Fri Apr 18 15:11:58 2025 +0800
+
+    Delete src/utils/__pycache__ directory
+
+[33mcommit c12086cd4493ce9ca3f791af11e07d25e96ad0bb[m
+Author: Johannes <90709683+CIawevy@users.noreply.github.com>
+Date:   Fri Apr 18 15:11:38 2025 +0800
+
+    Delete sam/efficient_sam/__pycache__ directory
+
+[33mcommit aaaf4542834f16d37c4a80d8626de46bbaa6d445[m
+Author: Johannes <90709683+CIawevy@users.noreply.github.com>
+Date:   Fri Apr 18 15:11:03 2025 +0800
+
+    Delete src/demo/__pycache__ directory
+
+[33mcommit 0e315f81ad627f655761e499aab2544b77ec6dd9[m
+Author: Johannes <90709683+CIawevy@users.noreply.github.com>
+Date:   Fri Apr 18 15:10:18 2025 +0800
+
+    Delete src/unet/__pycache__ directory
+
+[33mcommit ef4e6a81776c25ca830b43a4302ff2de76d70e8c[m
+Author: Johannes <90709683+CIawevy@users.noreply.github.com>
+Date:   Fri Apr 18 15:10:03 2025 +0800
+
+    Delete src/models/__pycache__ directory
+
+[33mcommit 3db9a51a2dc8a21e926d10141da89745bdb419d0[m
+Author: CIawevy <519511374@qq.com>
+Date:   Fri Apr 18 14:40:12 2025 +0800
+
+    remedy
+
+[33mcommit 661dec2326880fe4319feeeb80a70e5503703717[m
+Author: CIawevy <519511374@qq.com>
+Date:   Fri Apr 18 11:26:58 2025 +0800
+
+    First commit
+
+[33mcommit 96ea90424c79cf3464bfb1dbe018a2e7ebfe9003[m
+Author: CIawevy <519511374@qq.com>
+Date:   Tue Jan 7 22:51:12 2025 +0800
+
+    recent updates
+
+[33mcommit 1990eda7e166aab01c7e46091b12ec357a56e207[m
+Author: CIawevy <519511374@qq.com>
+Date:   Sat Oct 26 17:39:09 2024 +0800
+
+    recent updates
+
+[33mcommit 0bd271362928f17e51d049326f5cc1a856c46319[m
+Author: CIawevy <519511374@qq.com>
+Date:   Mon Sep 9 18:21:23 2024 +0800
+
+    recent updates
+
+[33mcommit ee6a23d2f4c1ec3d648ca68100ddb486b6a73d4f[m
+Author: CIawevy <519511374@qq.com>
+Date:   Mon Aug 26 16:35:09 2024 +0800
+
+    recent updates
+
+[33mcommit 218b5b4c0dc0e32bf7521dcea94f137ac5fdf70e[m
+Author: CIawevy <519511374@qq.com>
+Date:   Fri Aug 9 15:50:25 2024 +0800
+
+    recent updates
+
+[33mcommit 55aa446a4f92275e715fed258d368f80b3ed6feb[m
+Author: CIawevy <519511374@qq.com>
+Date:   Sun Aug 4 15:46:35 2024 +0800
+
+    recent updates
+
+[33mcommit 9c3e3d7acab3e21b44595811c40e46c886bf739b[m
+Author: CIawevy <519511374@qq.com>
+Date:   Fri Aug 2 23:06:04 2024 +0800
+
+    recent updates
+
+[33mcommit 4c13bea80bcf023fbb77c61d9d7a7f36abdcb0f4[m
+Author: CIawevy <519511374@qq.com>
+Date:   Wed Jul 31 14:35:04 2024 +0800
+
+    recent updates
+
+[33mcommit 3de345072fc0c802b728d48c2cbe3feb8df43ef1[m
+Author: CIawevy <519511374@qq.com>
+Date:   Sun Jul 28 11:31:00 2024 +0800
+
+    recent updates
+
+[33mcommit e355452aef70d5159802c73101e4a0dfc94b300f[m
+Author: CIawevy <519511374@qq.com>
+Date:   Tue Jun 25 15:11:27 2024 +0800
+
+    (1)rasterization code for 3d mapping intergrated in My_app.py
+    (2)depth anything v2 and implementation
+
+[33mcommit bce17d8c284ba74647947fd9f602d6dad7bd2cb4[m
+Author: CIawevy <519511374@qq.com>
+Date:   Thu Jun 20 17:28:58 2024 +0800
+
+    update img
+
+[33mcommit 75700c1a63043b1b987015802d394c4afc9df3a8[m
+Author: CIawevy <519511374@qq.com>
+Date:   Thu Jun 20 17:27:40 2024 +0800
+
+    update img
+
+[33mcommit 8d5003e2744c3ae9d7921565d165adb97ccd9d0c[m
+Author: CIawevy <519511374@qq.com>
+Date:   Thu Jun 20 17:07:05 2024 +0800
+
+    update img
+
+[33mcommit 6883a9c91345edf142d27fc1f6f02c93eacb48e4[m
+Author: CIawevy <519511374@qq.com>
+Date:   Sun Jun 16 12:15:21 2024 +0800
+
+    update img
+
+[33mcommit 25388bcd8e590ce33807d559ad91db3738ea2e59[m
+Author: CIawevy <519511374@qq.com>
+Date:   Sun Jun 16 12:11:37 2024 +0800
+
+    update ReadeMe
+
+[33mcommit cb162009371ae4c350fd514e96234274ad851bcf[m
+Author: CIawevy <519511374@qq.com>
+Date:   Sun Jun 16 11:51:11 2024 +0800
+
+    p3d rasterization pipeline updates
+
+[33mcommit d8e71a47e86523e92056921cb3c0311c74f3d543[m
+Author: CIawevy <519511374@qq.com>
+Date:   Fri Jun 14 22:15:06 2024 +0800
+
+    code update
+
+[33mcommit 3190b8662012a3d918dfc94d30027025ba0d26c8[m
+Author: CIawevy <519511374@qq.com>
+Date:   Wed Jun 12 17:20:43 2024 +0800
+
+    code update
+
+[33mcommit d95c70a5eb983cef9e75895c713771e491a70d33[m
+Author: CIawevy <519511374@qq.com>
+Date:   Sat Jun 8 22:17:58 2024 +0800
+
+    update ReadMe.md
+
+[33mcommit bb9a074057b5dfd2dbdbf5621ef8ebcc8ebaf82b[m
+Author: CIawevy <519511374@qq.com>
+Date:   Sat Jun 8 22:14:01 2024 +0800
+
+    update ReadMe.md
+
+[33mcommit b6cdfa7a33c58804dd7ead531cb0bdaa16697e79[m
+Author: CIawevy <519511374@qq.com>
+Date:   Sat Jun 8 22:10:23 2024 +0800
+
+    update ReadMe.md
+
+[33mcommit 7a5a34fea6acc7ab123fbccaf5a69888f5e3e1f8[m
+Author: CIawevy <519511374@qq.com>
+Date:   Sat Jun 8 22:08:16 2024 +0800
+
+    code and file update
+
+[33mcommit 8e7211eeceeba8e7c84299c5cb411299504e1ece[m
+Author: CIawevy <519511374@qq.com>
+Date:   Sat Jun 8 22:06:40 2024 +0800
+
+    Update ReadMe.md
+
+[33mcommit 9e43877213bc2a10c40593be493097e86508cb16[m
+Author: CIawevy <519511374@qq.com>
+Date:   Sat Jun 8 21:53:24 2024 +0800
+
+    Grand updates for 3D operation:
+    (1) fix bugs for unsatisfied results
+    (2)stuggle to use cv2.remap, so discarded and write a reprojection function myself, considering depth and occlusion
+    (3)hard to interpolate the sparse reprojection artifacts, without cv2.remap, I change the direction, to use inpainting tools to repair these artifacts directly
+
+[33mcommit 4f629a24a75d43d515c4e64a7225e88b6ca1f3e7[m
+Author: CIawevy <519511374@qq.com>
+Date:   Sat Jun 8 00:05:23 2024 +0800
+
+    Grand updates for 3D operation:
+    (1) depth-anything relative distance map
+    (2) 2D->3D operation using depth & cam_focals
+    (3) 3d-3d editting defined by matrix
+    (4) 3d ->2d projecting interploation
+    
+    have some bugs for unsatisfied ratating in y-axis
+    go on!
+
+[33mcommit e2bc27f96a477585535f9628a47229efcf3ef0c4[m
+Author: CIawevy <519511374@qq.com>
+Date:   Thu Jun 6 21:01:57 2024 +0800
+
+    Grand updates!:
+    (1) better code for box only input retain, with rotation sam mask as input to get expansion regions, but original mask as target
+    (2)better code for draw only input retaining strategy,with beta*100 and beta to simulate targer mask and dilation expansion
+    (3)better inpainting prompt as "empty scene" only
+    (4) controllable alpha blending in final_img and input image, replace the original 0-1 mask region concat
+
+[33mcommit 31fa67e075fc7a93916d2e9282f08fc203a1150c[m
+Author: CIawevy <519511374@qq.com>
+Date:   Mon Jun 3 23:25:19 2024 +0800
+
+    Grand updates!:
+    (1) cleaner code for geometric editing in copy-move(move rotate scale flip)
+    (2)retain consistent areas after inpainting and repainting
+    (3)strong input take box and draw as input!
+    (4)modify the default pyrams to support speeding up inference!
+
+[33mcommit f466acb23834db881ce8d9084d2e85c6af6c1691[m
+Author: CIawevy <519511374@qq.com>
+Date:   Fri May 31 16:00:49 2024 +0800
+
+    bug fix
+
+[33mcommit 9afaa21a8da1d61ea7f4f82622ba7e01d3bea822[m
+Author: CIawevy <519511374@qq.com>
+Date:   Fri May 31 15:21:46 2024 +0800
+
+    update README
+
+[33mcommit 42abdb7ab5554bb05fb404349c06afd6bd6140f1[m
+Author: CIawevy <519511374@qq.com>
+Date:   Fri May 31 15:15:14 2024 +0800
+
+    update README
+
+[33mcommit 9d88149e397e29a1ce9aa27cb96b064d9ccd4360[m
+Author: CIawevy <519511374@qq.com>
+Date:   Fri May 31 15:13:58 2024 +0800
+
+    updates:
+    (1)buf fix for rotation and resize
+    (2)add flip operation
+    (3)inpainting prompt control
+    (4)object mask refine supported
+
+[33mcommit 06ee8971296698a39b485d33b5f68cd3b1bad499[m
+Author: CIawevy <519511374@qq.com>
+Date:   Thu May 30 16:06:34 2024 +0800
+
+    bug fix for rotation and resize
+
+[33mcommit 823ba53236d48b2606dabcbc9e39e0f85e9732f5[m
+Author: CIawevy <519511374@qq.com>
+Date:   Thu May 30 14:25:15 2024 +0800
+
+    support resize & rotate geometric editing now
+
+[33mcommit 5b830f997717c8c269e0bf5998ad7d987e98383f[m
+Author: CIawevy <519511374@qq.com>
+Date:   Thu May 30 10:17:23 2024 +0800
+
+    update example
+
+[33mcommit a24575665856dbebf510d9c19060ff47fd925cac[m
+Author: CIawevy <519511374@qq.com>
+Date:   Thu May 30 10:17:09 2024 +0800
+
+    update example
+
+[33mcommit 1f67ab560e37d9e23231ca708f637706d9ad2e00[m
+Author: Johannes <90709683+CIawevy@users.noreply.github.com>
+Date:   Thu May 30 01:00:21 2024 +0800
+
+    modify README.md
+
+[33mcommit 4bfa36ecf77f84dc49bdb595d3f5125626d39d1c[m
+Author: Johannes <90709683+CIawevy@users.noreply.github.com>
+Date:   Thu May 30 00:53:08 2024 +0800
+
+    add README.md
+
+[33mcommit 9f0b89c24629b16b81b68380b287a50c0424b2c9[m
+Author: Johannes <90709683+CIawevy@users.noreply.github.com>
+Date:   Thu May 30 00:49:57 2024 +0800
+
+    add README.md
+
+[33mcommit 8cc638dc4a65e3e337d8a8cab9769e909ae58286[m
+Author: Johannes <90709683+CIawevy@users.noreply.github.com>
+Date:   Thu May 30 00:49:25 2024 +0800
+
+    add examples
+
+[33mcommit f3d5f9c7d7f8f98255cb1a3fd8a1a7bb310b6a8f[m
+Author: Johannes <90709683+CIawevy@users.noreply.github.com>
+Date:   Thu May 30 00:48:38 2024 +0800
+
+    init commit
+
+[33mcommit 4848e9e5e2a417546f8c86d6086fd023d96caa51[m
+Author: Johannes <90709683+CIawevy@users.noreply.github.com>
+Date:   Thu May 30 00:44:39 2024 +0800
+
+    Initial commit
