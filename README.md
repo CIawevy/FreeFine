@@ -71,7 +71,7 @@ Note: Code is still in maintenance. Releasing initial version.
 - [x] Arxiv Paper
 - [x] Release Code
 - [x] GeoBench benchmark dataset 
-- [ ] Evaluation code platform
+- [x] Evaluation code platform
 - [ ] Jupyter notebook demos  
 - [ ] Gradio interface demos
 - [ ] Adapt to stronger baselines such as SDXL and DIT
