@@ -3,3 +3,6 @@ scripts/download_models_temp.sh
 
 # 忽略模型存储目录（及其所有内容）
 checkpoints/
+
+# 忽略 Python 字节码缓存目录
+__pycache__/
