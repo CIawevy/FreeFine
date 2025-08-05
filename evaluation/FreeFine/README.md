@@ -51,7 +51,7 @@ python get_3d_transform_correspondence.py # Replace with your own checkpoint pat
 ```
 - **Step 3: batch inference to re-generate**
 ```bash
-torchrun --nproc_per_node=8 --master-port $FREE_PORT freefine_batch_infer_2d.py
+torchrun --nproc_per_node=8 --master-port $FREE_PORT freefine_batch_infer_3d_depth.py
 ```
 
 

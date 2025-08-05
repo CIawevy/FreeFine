@@ -83,14 +83,14 @@ cd FreeFine/evaluation/metrics/
 python main.py \
     --path generate_results_2d_freefine.json \
     --use_relative_path \
-    --base_dir /data/Hszhu/GeoBenchMeta
+    --base_dir <path/to/GeoBenchMeta>
 
 # For 3D Evaluation
 python main.py \
     --path generate_results_3d_freefine.json \
     --3d \
     --use_relative_path \
-    --base_dir /data/Hszhu/GeoBenchMeta
+    --base_dir <path/to/GeoBenchMeta>
  ```
 
 
