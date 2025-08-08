@@ -57,7 +57,7 @@ Note: Code is still in maintenance. Releasing initial version.
 
 
 ## 🔥 News
-- **2025-08-10**: 🚀 **Scheduled Full Project Open-Source Release**  
+- **2025-08-15**: 🚀 **Scheduled Full Project Open-Source Release**  
   We’re gearing up to release the entire FreeFine ecosystem, with these key components currently in development:  
   - 📊 GeoBench benchmark dataset (2D/3D geometric editing scenarios)  
   - 📈 Evaluation code for quantitative performance testing  
