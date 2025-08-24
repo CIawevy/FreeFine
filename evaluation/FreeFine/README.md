@@ -68,6 +68,7 @@ pip install -r requirements.txt
 ```
 pip install iopath>=0.1.10 -i https://pypi.org/simple
 pip install --no-index --no-cache-dir git+https://github.com/facebookresearch/pytorch3d.git@stable -i https://pypi.org/simple
+pip install cupy-cuda12x==13.0.0
 ```
 
 - Install [SV3D](https://github.com/Stability-AI/generative-models) (Optional for SV3D-based 3D-editing)  
