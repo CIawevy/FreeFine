@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 from torch import nn
-from GeoDiffuser.utils import softsplat
+from evaluation.GeoDiffuser.GeoDiffuser.utils import softsplat
 from pytorch3d.structures import Pointclouds
 from pytorch3d.structures import Meshes
 import numbers, math

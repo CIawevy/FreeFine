@@ -1,12 +1,12 @@
-from GeoDiffuser.utils.editor import *
+from evaluation.GeoDiffuser.GeoDiffuser.utils.editor import *
 # from geometry_editor import *
 import os
-from GeoDiffuser.utils import vis_utils
-import GeoDiffuser.utils.generic as io
+from evaluation.GeoDiffuser.GeoDiffuser.utils import vis_utils
+import evaluation.GeoDiffuser.GeoDiffuser.utils.generic as io
 import matplotlib.pyplot as plt
-from GeoDiffuser.segment_anything import SamPredictor, sam_model_registry
-from GeoDiffuser.depth_anything.util.transform import Resize, NormalizeImage, PrepareForNet
-from GeoDiffuser.depth_anything.dpt import DepthAnything
+from evaluation.GeoDiffuser.GeoDiffuser.segment_anything import SamPredictor, sam_model_registry
+from evaluation.GeoDiffuser.GeoDiffuser.depth_anything.util.transform import Resize, NormalizeImage, PrepareForNet
+from evaluation.GeoDiffuser.GeoDiffuser.depth_anything.dpt import DepthAnything
 
 
 """Compute depth maps for images in the input folder.
@@ -20,18 +20,18 @@ from PIL import Image
 
 # from geometry
 
-from GeoDiffuser.utils.generic import load_256
+from evaluation.GeoDiffuser.GeoDiffuser.utils.generic import load_256
 
 from torchvision.transforms import Compose
 
-from GeoDiffuser.dpt.models import DPTDepthModel
-from GeoDiffuser.dpt.midas_net import MidasNet_large
-from GeoDiffuser.dpt.transforms import Resize, NormalizeImage, PrepareForNet
+from evaluation.GeoDiffuser.GeoDiffuser.dpt.models import DPTDepthModel
+from evaluation.GeoDiffuser.GeoDiffuser.dpt.midas_net import MidasNet_large
+from evaluation.GeoDiffuser.GeoDiffuser.dpt.transforms import Resize, NormalizeImage, PrepareForNet
 from scipy.signal import medfilt
 from scipy.ndimage import gaussian_filter
 
-from GeoDiffuser.zoedepth.models.builder import build_model
-from GeoDiffuser.zoedepth.utils.config import get_config
+from evaluation.GeoDiffuser.GeoDiffuser.zoedepth.models.builder import build_model
+from evaluation.GeoDiffuser.GeoDiffuser.zoedepth.utils.config import get_config
 
 
 SAM_MODEL = None
@@ -351,7 +351,7 @@ def get_monocular_depth_anything(image, encoder="vitl", translate_factor=0.1 ,lo
         # encoder = 'vitl'  # or 'vitb', 'vits'
         depth_anything = DepthAnything(model_configs[encoder])
         depth_anything.load_state_dict \
-            (torch.load(f'/data/Hszhu/prompt-to-prompt/depth-anything/depth_anything_{encoder}14.pth'))
+            (torch.load(f'/mnt/bn/ocr-doc-nas/zhuhanshen/models/depth-model/depth_anything_{encoder}14.pth')) #replace with your download path
         depth_anything.to(DEVICE).eval()
         DEPTH_ANYTHING_MODEL = depth_anything
 

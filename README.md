@@ -63,7 +63,7 @@ Note: Code is still in maintenance. Releasing initial version.
   - 📈 Evaluation code for quantitative performance testing  
   - ⚙️ Complete inference codebase for end-to-end editing pipelines  
   - 📓 Interactive Jupyter notebook demos (step-by-step tutorials)  
-  - 🖥️ User-friendly Gradio interface (no-code visual editing)
+  <!-- - 🖥️ User-friendly Gradio interface (no-code visual editing) -->
 - **2025-07-31**: Our [Arxiv Paper](https://www.arxiv.org/abs/2507.23300) is now available!  
 - **2025-06-26**: 🎉FreeFine has been accepted to **ICCV 2025**! 🎉
 
@@ -72,7 +72,7 @@ Note: Code is still in maintenance. Releasing initial version.
 - [x] Release Code
 - [x] GeoBench benchmark dataset 
 - [x] Evaluation code platform
-- [ ] Jupyter notebook demos  
+- [x] Jupyter notebook demos  
 - [ ] Gradio interface demos
 - [ ] Adapt to stronger baselines such as SDXL and DIT
   
@@ -89,6 +89,7 @@ pip install -r requirements.txt
 ```
 pip install iopath>=0.1.10 -i https://pypi.org/simple
 pip install --no-index --no-cache-dir git+https://github.com/facebookresearch/pytorch3d.git@stable -i https://pypi.org/simple
+pip install cupy-cuda12x==13.0.0
 ```
 
 - Install [SV3D](https://github.com/Stability-AI/generative-models) (Optional for SV3D-based 3D-editing)  

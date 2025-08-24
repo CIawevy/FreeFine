@@ -1,13 +1,13 @@
 import torch
 import abc
 from typing import Optional, Union, Tuple, List, Callable, Dict
-from GeoDiffuser.utils.attention_sharing import *
-from GeoDiffuser.utils.ptp_utils import *
-from GeoDiffuser.utils.generic_torch import *
-from GeoDiffuser.utils.warp_utils import *
-from GeoDiffuser.utils.loss import *
-import GeoDiffuser.utils.vis_utils as vis_utils
-from diffusers.models.attention_processor import USE_PEFT_BACKEND
+from evaluation.GeoDiffuser.GeoDiffuser.utils.attention_sharing import *
+from evaluation.GeoDiffuser.GeoDiffuser.utils.ptp_utils import *
+from evaluation.GeoDiffuser.GeoDiffuser.utils.generic_torch import *
+from evaluation.GeoDiffuser.GeoDiffuser.utils.warp_utils import *
+from evaluation.GeoDiffuser.GeoDiffuser.utils.loss import *
+import evaluation.GeoDiffuser.GeoDiffuser.utils.vis_utils as vis_utils
+# from diffusers.models.attention_processor import USE_PEFT_BACKEND
 
 
 DISTANCE_CLASS = CoordinateDistances()

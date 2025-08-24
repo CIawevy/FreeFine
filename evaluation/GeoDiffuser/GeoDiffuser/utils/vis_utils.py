@@ -10,7 +10,7 @@ from mpl_toolkits.mplot3d import Axes3D as mpl_3D
 # import pptk
 import glob
 import os, argparse
-from GeoDiffuser.utils.warp_utils import forward_warp, pose_2_matrix, forward_splatting_warp, forward_splatting_pytorch3d_warp
+from evaluation.GeoDiffuser.GeoDiffuser.utils.warp_utils import forward_warp, pose_2_matrix, forward_splatting_warp, forward_splatting_pytorch3d_warp
 from PIL import Image
 from scipy.spatial import KDTree
 

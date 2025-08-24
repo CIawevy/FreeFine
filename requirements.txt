@@ -16,6 +16,7 @@ rembg==2.0.57
 scipy==1.13.1
 httpx==0.23.3
 jupyterlab==3.6.6
+timm==0.9.12
 #for jupyter demo use
 #pip install jupyterlab==3.6.6
 #jupyter kernelspec list

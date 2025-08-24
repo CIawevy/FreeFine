@@ -46,7 +46,7 @@ torchrun --nproc_per_node=8 --master-port $FREE_PORT freefine_batch_infer_bggen_
 - **Step 2: Run depth-based 3D transform** :
 This step is modified from Geodiffuser's code base. We use Depth Anything and PyTorch3D to estimate depth and directly transform the image based on that. After this step, we will get a coarse_edit_3d_img (which is sparse and troublesome) and the correspondence map for Mean - Distance (MD) calculation.
 ```bash
-conda activate GeoDiffuser
+conda activate FreeFine
 python get_3d_transform_correspondence.py # Replace with your own checkpoint path and other parameters in the file
 ```
 - **Step 3: batch inference to re-generate**

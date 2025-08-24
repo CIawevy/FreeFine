@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torchvision.transforms import v2
 import abc
 
-from GeoDiffuser.utils.generic_torch import reshape_transform_coords, reshape_attention_mask
+from evaluation.GeoDiffuser.GeoDiffuser.utils.generic_torch import reshape_transform_coords, reshape_attention_mask
 # from GeoDiffuser.inversion import NullInversion
 
 

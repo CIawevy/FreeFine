@@ -734,3 +734,16 @@ if __name__ == "__main__":
 #         #5. grad backward to bottleneck feature
 #         #5 forward again
 
+def depth_based_transform(ori_img, ori_mask, edit_param, inp_back_ground):
+    """
+    ori_img: PIL Image
+    ori_mask: PIL Image
+    edit_param: dict
+    inp_back_ground: PIL Image
+    """
+    # 1. get 3D transform matrix from edit_param
+    # 2. apply transform matrix to ori_img
+    # 3. apply transform matrix to ori_mask
+    # 4. apply transform matrix to inp_back_ground
+    # 5. return transformed img, mask, draw_mask
+    return transformed_img, transformed_mask, draw_mask

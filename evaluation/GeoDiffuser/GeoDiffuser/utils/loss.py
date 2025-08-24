@@ -1,6 +1,6 @@
 import torch
 
-from GeoDiffuser.utils.generic_torch import *
+from evaluation.GeoDiffuser.GeoDiffuser.utils.generic_torch import *
 
 def get_correlation_loss_stitch(correlation, mask_zero, mask_one, mask_warped_one):
 

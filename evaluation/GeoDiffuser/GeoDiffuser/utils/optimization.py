@@ -1,5 +1,5 @@
 import torch
-from GeoDiffuser.utils.generic_torch import *
+from evaluation.GeoDiffuser.GeoDiffuser.utils.generic_torch import *
 
 
 

@@ -1,9 +1,9 @@
 import torch
-from GeoDiffuser.utils.generic import log_args
+from evaluation.GeoDiffuser.GeoDiffuser.utils.generic import log_args
 from diffusers import StableDiffusionPipeline, DDIMScheduler, DDIMInverseScheduler, StableDiffusionXLPipeline, UNet2DConditionModel
 from diffusers.models import AutoencoderKL
-from GeoDiffuser.utils.attention_processors import *
-from GeoDiffuser.utils.warp_utils import RasterizePointsXYsBlending
+from evaluation.GeoDiffuser.GeoDiffuser.utils.attention_processors import *
+from evaluation.GeoDiffuser.GeoDiffuser.utils.warp_utils import RasterizePointsXYsBlending
 
 # USE_PEFT_BACKEND = False
 # UNCOND_TEXT="pixelated, unclear, blurry, grainy"

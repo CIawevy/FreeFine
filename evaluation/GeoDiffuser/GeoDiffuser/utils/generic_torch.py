@@ -4,7 +4,7 @@ import torchvision.transforms as T
 import os
 import torch.nn.functional as F
 import numpy as np
-from GeoDiffuser.utils.generic import *
+from evaluation.GeoDiffuser.GeoDiffuser.utils.generic import *
 import numbers, math
 from torch import nn
 

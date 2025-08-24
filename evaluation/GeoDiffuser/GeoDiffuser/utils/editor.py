@@ -1,6 +1,6 @@
 import torch
-from GeoDiffuser.utils.ptp_utils import view_images
-from GeoDiffuser.utils.generic import log_args
+from evaluation.GeoDiffuser.GeoDiffuser.utils.ptp_utils import view_images
+from evaluation.GeoDiffuser.GeoDiffuser.utils.generic import log_args
 
 import random
 import pytorch_lightning as pl
@@ -9,20 +9,20 @@ import xformers.ops as xops
 import logging
 from typing import Optional, Union, Tuple, List, Callable, Dict
 
-from diffusers.models.attention_processor import USE_PEFT_BACKEND
-from diffusers.models import AutoencoderKL
-from diffusers import StableDiffusionPipeline, DDIMScheduler, DDIMInverseScheduler, StableDiffusionXLPipeline, UNet2DConditionModel
-from GeoDiffuser.utils.warp_utils import RasterizePointsXYsBlending
-from GeoDiffuser.utils import warp_utils, vis_utils
-from GeoDiffuser.utils.inversion import NullInversion
-from GeoDiffuser.utils.generic_torch import *
-from GeoDiffuser.utils.diffusion import image2latent, latent2image, diffusion_step, load_model
-# from GeoDiffuser.utils.attention_ import *
-from GeoDiffuser.utils.attention_processors import *
-from GeoDiffuser.utils.generic import *
+# from diffusers.models.attention_processor import USE_PEFT_BACKEND
+# from diffusers.models import AutoencoderKL
+# from diffusers import StableDiffusionPipeline, DDIMScheduler, DDIMInverseScheduler, StableDiffusionXLPipeline, UNet2DConditionModel
+from evaluation.GeoDiffuser.GeoDiffuser.utils.warp_utils import RasterizePointsXYsBlending
+from evaluation.GeoDiffuser.GeoDiffuser.utils import warp_utils, vis_utils
+from evaluation.GeoDiffuser.GeoDiffuser.utils.inversion import NullInversion
+from evaluation.GeoDiffuser.GeoDiffuser.utils.generic_torch import *
+from evaluation.GeoDiffuser.GeoDiffuser.utils.diffusion import image2latent, latent2image, diffusion_step, load_model
+# from evaluation.GeoDiffuser.GeoDiffuser.utils.attention_ import *
+from evaluation.GeoDiffuser.GeoDiffuser.utils.attention_processors import *
+from evaluation.GeoDiffuser.GeoDiffuser.utils.generic import *
 from tqdm import tqdm
-from GeoDiffuser.utils.optimization import _update_latent, adaptive_optimization_step_editing, adaptive_optimization_step_remover, adaptive_optimization_step_stitching
-from GeoDiffuser.utils.image_processing import *
+from evaluation.GeoDiffuser.GeoDiffuser.utils.optimization import _update_latent, adaptive_optimization_step_editing, adaptive_optimization_step_remover, adaptive_optimization_step_stitching
+from evaluation.GeoDiffuser.GeoDiffuser.utils.image_processing import *
 
 # USE_PEFT_BACKEND = False
 # UNCOND_TEXT="pixelated, unclear, blurry, grainy"

@@ -3,7 +3,7 @@ from PIL import Image
 from typing import Optional, Union, Tuple, List, Callable, Dict
 import numpy as np
 from diffusers import DDIMScheduler, DDIMInverseScheduler
-from GeoDiffuser.utils.attention_processors import *
+from evaluation.GeoDiffuser.GeoDiffuser.utils.attention_processors import *
 
 
 class NullInversion:
