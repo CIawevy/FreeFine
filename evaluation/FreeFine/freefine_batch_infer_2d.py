@@ -194,7 +194,7 @@ def main(dst_base):
         coarse_input, target_mask = re_edit_2d(ori_img, ori_mask, edit_param, inp_back_ground)
         obj_label = ""
         ori_mask = read_and_resize_mask(ori_mask_path)
-        draw_mask = np.ones_like(ori_mask)
+        draw_mask = np.zeros_like(ori_mask)# will be ignored if use auto-draw
 
         # mask_pool = prepare_mask_pool(data[da_n]['instances'])
 
@@ -222,7 +222,7 @@ def main(dst_base):
             "num_step": 50,
             "start_step": 35,
             "seed": 42,
-            "draw_mask": draw_mask,
+            "draw_mask": None,
             "return_intermediates" : False,
             "use_auto_draw" : True,
             "reduce_inp_artifacts" : True,
