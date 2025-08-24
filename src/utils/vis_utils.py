@@ -345,6 +345,39 @@ def dilate_mask(mask, dilate_factor=15):
         iterations=1
     )
     return mask
+# 新增从 PIL 图像转换并调整大小的函数
+def read_and_resize_img_from_pil(pil_img, dsize=(512, 512)):
+    # 将 PIL 图像转换为 numpy 数组
+    img_array = np.array(pil_img)
+    # 如果是灰度图像，转换为 3 通道
+    if len(img_array.shape) == 2:
+        img_array = np.stack([img_array] * 3, axis=-1)
+    # 如果图像是 RGBA，转换为 RGB
+    elif img_array.shape[2] == 4:
+        img_array = img_array[:, :, :3]
+    # 转换为 cv2 格式（BGR）
+    img_cv2 = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+    # 调整大小
+    resized_img = cv2.resize(img_cv2, dsize=dsize, interpolation=cv2.INTER_LANCZOS4)
+    # 转换回 RGB 格式
+    resized_img = cv2.cvtColor(resized_img, cv2.COLOR_BGR2RGB)
+    return resized_img
+
+
+# 新增从 PIL 掩码转换并调整大小的函数
+def read_and_resize_mask_from_pil(pil_mask, dsize=(512, 512)):
+    # 将 PIL 掩码转换为 numpy 数组
+    mask_array = np.array(pil_mask)
+    # 如果是多通道掩码，取第一个通道
+    if len(mask_array.shape) > 2:
+        mask_array = mask_array[:, :, 0]
+    # 转换为 3 通道掩码
+    mask_3channel = np.stack([mask_array] * 3, axis=-1)
+    # 调整大小
+    resized_mask = cv2.resize(mask_3channel, dsize=dsize, interpolation=cv2.INTER_NEAREST)
+    # 将大于 0 的值设为 1
+    resized_mask[resized_mask > 0] = 1
+    return resized_mask
 
 def read_and_resize_img(ori_img_path,dsize=(512,512)):
     ori_img = cv2.imread(ori_img_path)

@@ -1020,6 +1020,9 @@ class FreeFinePipeline(StableDiffusionPipeline):
         target_mask = self.mask_reduce_dim(target_mask)
         if draw_mask is not None:
             draw_mask = self.mask_reduce_dim(draw_mask)
+        if cons_area is not None:
+            cons_area = self.mask_reduce_dim(cons_area)
+
 
         # DDIM INVERSION
         shifted_mask, inverted_latent = self.DDIM_inversion_func(img=coarse_input, mask=target_mask,
@@ -1479,8 +1482,6 @@ class FreeFinePipeline(StableDiffusionPipeline):
                 ori_mask_tensor = self.prepare_tensor_mask(ori_mask, sup_res_w, sup_res_h)
                 cons_area_tensor = self.prepare_tensor_mask(cons_area, sup_res_w, sup_res_h)
                 fg_mask = shifted_mask_tensor #no need to add
-
-                cons_area_tensor = cons_area_tensor - ori_mask_tensor
                 complete_region_tensor = (1 - cons_area_tensor) * (1-shifted_mask_tensor) * dil_tgt_mask_tensor
                 # complete_region_tensor = dil_tgt_mask_tensor
                 # self.temp_view(complete_region_tensor.cpu().numpy())
@@ -1496,8 +1497,6 @@ class FreeFinePipeline(StableDiffusionPipeline):
                 ori_mask_tensor = self.prepare_tensor_mask(ori_mask, sup_res_w, sup_res_h)
                 cons_area_tensor = self.prepare_tensor_mask(cons_area, sup_res_w, sup_res_h)
                 fg_mask = shifted_mask_tensor
-
-                cons_area_tensor = cons_area_tensor - ori_mask_tensor
                 complete_region_tensor =  dil_mask_tensor + dil_tgt_mask_tensor
                 complete_region_tensor[complete_region_tensor>0] = 1
                 complete_region_tensor *= (1 - cons_area_tensor) * (1 - shifted_mask_tensor)

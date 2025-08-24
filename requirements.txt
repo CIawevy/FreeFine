@@ -14,3 +14,11 @@ gradio==3.50.2
 numpy==1.26.4
 rembg==2.0.57
 scipy==1.13.1
+httpx==0.23.3
+jupyterlab==3.6.6
+#for jupyter demo use
+#pip install jupyterlab==3.6.6
+#jupyter kernelspec list
+#jupyter kernelspec remove freefine
+#python -m ipykernel install --user --name=freefine --display-name "freefine"
+#jupyter lab --no-browser
