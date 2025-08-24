@@ -18,7 +18,7 @@ Note: Code is still in maintenance. Releasing initial version.
       alt="FreeFine Paper on arXiv"
     />
   </a>
-  <a href="">
+  <a href="https://github.com/CIawevy/FreeFine/blob/main/jupyter_demo/geometric-editing.ipynb">
     <img
       src="https://img.shields.io/badge/FreeFine-Demo-blue?logo=googleplay&logoColor=blue"
       alt="FreeFine Demo"
