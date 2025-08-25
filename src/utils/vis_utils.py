@@ -336,7 +336,11 @@ def re_edit_3d(src_img, src_mask, edit_param, inp_cur,ori_img_a,ori_mask_a):
     #     return False,transformed_mask
     final_image = np.where(transformed_mask[:, :, None], transformed_image,
                            inp_cur)  # move with expansion pixels but inpaint
-    return final_image, transformed_mask.astype(np.uint8)*255, trans_hole_image
+    if transformed_mask.max()>1:
+        return final_image.astype(np.uint8), transformed_mask.astype(np.uint8), trans_hole_image
+    else:
+        return final_image.astype(np.uint8), transformed_mask.astype(np.uint8)*255, trans_hole_image
+    
 def dilate_mask(mask, dilate_factor=15):
     mask = mask.astype(np.uint8)
     mask = cv2.dilate(

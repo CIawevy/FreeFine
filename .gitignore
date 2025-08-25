@@ -6,3 +6,6 @@ checkpoints/
 
 # 忽略 Python 字节码缓存目录
 __pycache__/
+
+vis_demo/
+

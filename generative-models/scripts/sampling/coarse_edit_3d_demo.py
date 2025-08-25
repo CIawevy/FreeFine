@@ -1,16 +1,20 @@
 import math
 import os
-# os.environ["CUDA_VISIBLE_DEVICES"]="4"
+os.environ["CUDA_VISIBLE_DEVICES"]="2"
+
 import sys
 from glob import glob
 from pathlib import Path
 from typing import List, Optional
 import matplotlib.pyplot as plt
-# sys.path.append('/data/Hszhu/Reggio')
 import json
 import os.path as osp
 from tqdm import  tqdm
 sys.path.append(os.path.realpath(os.path.join(os.path.dirname(__file__), "../../")))
+sys.path.append('/mnt/bn/ocr-doc-nas/zhuhanshen/iccv/FreeFine')# Replace with your path
+os.chdir('/mnt/bn/ocr-doc-nas/zhuhanshen/iccv/FreeFine/generative-models')# Replace with your path
+print(f"当前工作目录: {os.getcwd()}")
+assert os.getcwd().split('/')[-1] == 'generative-models', "Current working directory is not Generative-models"
 import cv2
 import imageio
 import time
@@ -26,9 +30,9 @@ from scripts.util.detection.nsfw_and_watermark_dectection import DeepFloydDataFi
 from sgm.inference.helpers import embed_watermark
 from sgm.util import default, instantiate_from_config
 from torchvision.transforms import ToTensor
-from edit_prompt_set import generate_random_instructions,my_seed_everything,generate_instruction_celeb
+from edit_prompt_set import generate_random_instructions,my_seed_everything,generate_instruction,post_process_coarse_edit
 
-Rotate_3D_list = ['person', 'hat']
+
 def temp_view_img(image: Image.Image, title: str = None) -> None:
     # PIL -> ndarray OR ndarray->PIL->ndarray
     if not isinstance(image, Image.Image):  # ndarray
@@ -283,8 +287,8 @@ def sv3d_sample(
         model_config = "scripts/sampling/configs/sv3d_p.yaml"
         cond_aug = 1e-5
         if isinstance(elevations_deg, float) or isinstance(elevations_deg, int):
-            # elevations_deg = [elevations_deg] * num_frames
-            elevations_deg = np.linspace(0, elevations_deg, num_frames + 1)[1:] % elevations_deg
+            elevations_deg = [elevations_deg] * num_frames
+            # elevations_deg = np.linspace(0, elevations_deg, num_frames + 1)[1:] % elevations_deg
         assert (
             len(elevations_deg) == num_frames
         ), f"Please provide 1 value, or a list of {num_frames} values for elevations_deg! Given {len(elevations_deg)}"
@@ -321,12 +325,13 @@ def sv3d_sample(
         image_arr = np.array(Image.fromarray(image_arr).convert("RGBA"))
         in_w, in_h = image_arr.shape[:2]
         x, y, w, h = cv2.boundingRect(obj_mask)
-        max_size = max(w, h)
-        side_len = (
-            int(max_size / image_frame_ratio)
-            if image_frame_ratio is not None
-            else in_w
-        )
+        max_size = max(w, h, in_w)
+        # side_len = (
+        #     int(max_size / image_frame_ratio)
+        #     if image_frame_ratio is not None
+        #     else in_w
+        # )
+        side_len = int(max_size)
         padded_image = np.zeros((side_len, side_len, 4), dtype=np.uint8)
         center = side_len // 2
         padded_image[
@@ -431,7 +436,7 @@ def sv3d_sample(
 
                 samples = embed_watermark(samples)
                 samples = filter(samples)
-                return (rearrange(samples, "t c h w -> t h w c") * 255).cpu().numpy().astype(np.uint8),in_w
+                return (rearrange(samples, "t c h w -> t h w c") * 255).cpu().numpy().astype(np.uint8),side_len
 
 
 def get_unique_embedder_keys_from_conditioner(conditioner):
@@ -523,55 +528,85 @@ def read_img(image_path):
     return img
 
 
-def coarse_edit_func_v2_celeb(img,mask_cur,inp_cur,constrain_area,obj_label,sv3d_model=None,sv3d_filter=None):
-    # 3D EDITING SAMPLING FUNC v2 for cxeleb
-    # SAMPLE all the edit all the possibility
+def coarse_edit_func_v2(img,mask_cur,inp_cur,constrain_area,obj_label,sv3d_model=None,sv3d_filter=None,use_3d=False):
+    # 3D EDITING SAMPLING FUNC v2
+    # SAMPLE all the edit all the direction(sample at last) three degrees
     #RESIZE IMG
-
     np.random.seed(int(time.time()))
     random_seed = np.random.randint(0, 2 ** 32 - 1)
+    if not use_3d:
+        instructions_2D = generate_instruction(sample_type='2D',seed=random_seed)
 
-    instructions_2D = generate_instruction_celeb(sample_type='2D',seed=random_seed,label = obj_label)
+        edit_prompt_list,coarse_res_list,tgt_mask_list,edit_param_list= [], [], [],[]
+        out_of_img_boundary_list = []
+        #TODO: DEGREE HAVE CHANGE SAMPLE LOGIC
 
-    edit_prompt_list,coarse_res_list,tgt_mask_list,edit_param_list= [], [], [],[]
-    edit_prompt_list_3d=[]
-    angle_list_3d = [] #for easier fetch
-    edit_param_list_3d=[]
-    for instruction in instructions_2D:
-        try:
-            coarse_edit_res,target_mask,edit_prompt,edit_param = sample_edit_func_2d_celeb(img,mask_cur,inp_cur,constrain_area,obj_label,instruction)
-            edit_prompt_list.append(edit_prompt)
-            coarse_res_list.append(coarse_edit_res)
-            tgt_mask_list.append(target_mask)
-            edit_param_list.append(edit_param)
-        except AssertionError as e:
-            print(f"AssertionError caught: {e}")
-            continue
-    if obj_label in Rotate_3D_list:
-        instructions_3D = generate_instruction_celeb(sample_type='3D', seed=random_seed, label=obj_label)
+        for instruction in instructions_2D:
+            try:
+                coarse_edit_res,target_mask,edit_prompt,edit_param,out_of_img_boundary= sample_edit_func_2d(img,mask_cur,inp_cur,constrain_area,obj_label,instruction)
+                edit_prompt_list.append(edit_prompt)
+                coarse_res_list.append(coarse_edit_res)
+                tgt_mask_list.append(target_mask)
+                edit_param_list.append(edit_param)
+                out_of_img_boundary_list.append(out_of_img_boundary)
+            except AssertionError as e:
+                print(f"AssertionError caught: {e}")
+                continue
+
+    else:
+        instructions_3D = generate_instruction(sample_type='3D', seed=random_seed)
+        edit_prompt_list, coarse_res_list, tgt_mask_list, edit_param_list = [], [], [], []
+        out_of_img_boundary_list = []
+        # TODO: DEGREE HAVE CHANGE SAMPLE LOGIC
+        edit_prompt_list_3d = []
+        angle_list_3d = []  # for easier fetch
+        edit_param_list_3d = []
+
+        # # try:
         for instruction in instructions_3D:
-            edit_prompt,sample_degree,edit_param = generate_editing_config_3d(obj_label, instruction)
+            edit_prompt, sample_degree, edit_param = generate_editing_config_3d(obj_label, instruction)
             edit_prompt_list_3d.append(edit_prompt)
             angle_list_3d.append(sample_degree)
             edit_param_list_3d.append(edit_param)
 
-        if len(angle_list_3d)>0:
+        if len(angle_list_3d) > 0:
             edit_config_3D = {
                 'elevations_deg': 10,  # default
                 'azimuths_deg': generate_azimuth_angles(n_views_sv3d=21, angle_list_3d=angle_list_3d)
             }
-            coarse_edit_list_3d,tgt_mask_list_3d,valid_prompt_list_3d,valid_param_list_3d= transform_3d(img,mask_cur,inp_cur,angle_list_3d,constrain_area,edit_prompt_list_3d,edit_param_list_3d,
-                         elevations_deg=edit_config_3D['elevations_deg'],
-                         azimuths_deg=edit_config_3D['azimuths_deg'],
-                        sv3d_model=sv3d_model,sv3d_filter=sv3d_filter)
+            coarse_edit_list_3d, tgt_mask_list_3d, valid_prompt_list_3d, valid_param_list_3d = transform_3d(img,
+                                                                                                            mask_cur,
+                                                                                                            inp_cur,
+                                                                                                            angle_list_3d,
+                                                                                                            constrain_area,
+                                                                                                            edit_prompt_list_3d,
+                                                                                                            edit_param_list_3d,
+                                                                                                            elevations_deg=
+                                                                                                            edit_config_3D[
+                                                                                                                'elevations_deg'],
+                                                                                                            azimuths_deg=
+                                                                                                            edit_config_3D[
+                                                                                                                'azimuths_deg'],
+                                                                                                            sv3d_model=sv3d_model,
+                                                                                                            sv3d_filter=sv3d_filter)
             coarse_res_list.extend(coarse_edit_list_3d)
             tgt_mask_list.extend(tgt_mask_list_3d)
             edit_prompt_list.extend(valid_prompt_list_3d)
             edit_param_list.extend(valid_param_list_3d)
+            out_of_img_boundary_list.extend([False] * len(valid_prompt_list_3d))
+        # except AssertionError as e:
+        #     print(f'no 3D edit for bug:{e}')
 
+    valid_idx = post_process_coarse_edit(edit_prompt_list,out_of_img_boundary_list)
+    edit_prompt_list = np.array(edit_prompt_list)[valid_idx].tolist()
+    coarse_res_list = np.array(coarse_res_list)[valid_idx]
+    coarse_res_list = [coarse_res_list[i] for i in range(coarse_res_list.shape[0])]
+    tgt_mask_list = np.array(tgt_mask_list)[valid_idx]
+    tgt_mask_list = [tgt_mask_list[i] for i in range(tgt_mask_list.shape[0])]
+    edit_param_list = np.array(edit_param_list)[valid_idx].tolist()
+    out_of_img_boundary_list = np.array(out_of_img_boundary_list)[valid_idx].tolist()
 
-
-    return edit_prompt_list,edit_param_list,coarse_res_list,tgt_mask_list
+    return edit_prompt_list,edit_param_list,coarse_res_list,tgt_mask_list,out_of_img_boundary_list
 def get_mask_from_rembg(trans_img,size=None,need_mask=True):
     if isinstance(trans_img,np.ndarray):
         trans_img = cv2.cvtColor(trans_img,cv2.COLOR_RGB2BGR)
@@ -590,7 +625,7 @@ def get_mask_from_rembg(trans_img,size=None,need_mask=True):
             np.array(trans_img.split()[-1]), 128, 255, cv2.THRESH_BINARY
         )
         return trans_mask,return_img
-def transform_2d(ori_img,ori_mask,inp_cur,edit_config,constrain_area,ignore_constrain):
+def transform_2d(ori_img,ori_mask,inp_cur,edit_config,constrain_area,out_of_img_boundary =False):
     rotation_angle=edit_config['rotation_angle']
     resize_scale = edit_config['resize_scale']
     if isinstance(resize_scale, float) or isinstance(resize_scale, int):
@@ -607,8 +642,19 @@ def transform_2d(ori_img,ori_mask,inp_cur,edit_config,constrain_area,ignore_cons
         # mask_roi = mask[top:bottom + 1, left:right + 1]
         # image_roi = image[top:bottom + 1, left:right + 1]
         mask_center_x, mask_center_y = (right + left) / 2, (top + bottom) / 2
-    else:
-        assert False, 'mask no center error, discard'
+        # 检查是否有移动操作（dx 或 dy 不为零）
+        if dx != 0 or dy != 0:
+            # 计算物体移动后的新边界
+            new_left = left + dx
+            new_right = right + dx
+            new_top = top + dy
+            new_bottom = bottom + dy
+
+            # 检查新边界是否超出图像的边界
+            if new_left < 0 or new_right > width or new_top < 0 or new_bottom > height:
+                # 如果超出边界，则丢弃或做其他处理
+                assert False, 'The transformed object is out of image boundary after move, discard'
+
     #将resize_scale解耦出来，实现x，y的单独缩放
     rotation_matrix = cv2.getRotationMatrix2D((mask_center_x, mask_center_y), -rotation_angle, 1)
     #当rotation angle=0且resize scale!=1时，由mask 中心会影响dx,dy的初始值
@@ -642,11 +688,11 @@ def transform_2d(ori_img,ori_mask,inp_cur,edit_config,constrain_area,ignore_cons
     # ddpm_region = transformed_mask_exp * (1 - transformed_mask)
     final_image = np.where(transformed_mask[:, :, None], transformed_image,
                            inp_cur)  # move with expansion pixels but inpaint
-    if ignore_constrain:
-        constrain_area = np.zeros_like(constrain_area)
     assert (transformed_mask & constrain_area.astype(bool)).sum()==0,'overlap with other objects, discard'
+    assert not out_of_img_boundary,'out of boundary ,discard'
+
     return final_image,transformed_mask
-def pasted_sv3d_back_to_img(ori_img, ori_mask, inp_cur, trans_img,constrain_area,ignore_constrain):
+def pasted_sv3d_back_to_img_easy(ori_img, ori_mask, inp_cur, trans_img,):
     # trans_img = cv2.resize(trans_img, (ori_img.shape[1], ori_img.shape[0]))
     trans_mask, trans_img = get_mask_from_rembg(trans_img)
 
@@ -674,16 +720,46 @@ def pasted_sv3d_back_to_img(ori_img, ori_mask, inp_cur, trans_img,constrain_area
     repl_trans_img[start_h:end_h, start_w:end_w] = trans_img[y_t:src_end_h, x_t:src_end_w]
 
     repl_trans_mask = (repl_trans_mask > 0).astype(bool)
-    if ignore_constrain:
-        constrain_area = np.zeros_like(constrain_area)
+    # ddpm_region = exp_mask_cur * (1 - repl_trans_mask)
+    final_image = np.where(repl_trans_mask[:, :, None], repl_trans_img, inp_cur)
+    return final_image, repl_trans_mask
+
+def pasted_sv3d_back_to_img(ori_img, ori_mask, inp_cur, trans_img,constrain_area):
+    # trans_img = cv2.resize(trans_img, (ori_img.shape[1], ori_img.shape[0]))
+    trans_mask, trans_img = get_mask_from_rembg(trans_img)
+
+    x, y, w, h = cv2.boundingRect(ori_mask)
+    cent_h, cent_w = y + h // 2, x + w // 2
+
+    x_t, y_t, w_t, h_t = cv2.boundingRect(trans_mask)
+
+    # 计算粘贴区域的起始和结束位置
+    start_h = max(cent_h - h_t // 2, 0)
+    start_w = max(cent_w - w_t // 2, 0)
+    end_h = min(cent_h - h_t // 2 + h_t, ori_mask.shape[0])
+    end_w = min(cent_w - w_t // 2 + w_t, ori_mask.shape[1])
+
+    # 调整 trans_mask 的区域
+    src_end_h = y_t + (end_h - start_h)
+    src_end_w = x_t + (end_w - start_w)
+
+    # 创建与 ori_mask 和 ori_img 大小一致的空白图像和掩码
+    repl_trans_mask = np.zeros_like(ori_mask)
+    repl_trans_img = np.zeros_like(ori_img)
+
+    # 粘贴 trans_mask 和 trans_img 到相应位置
+    repl_trans_mask[start_h:end_h, start_w:end_w] = trans_mask[y_t:src_end_h, x_t:src_end_w]
+    repl_trans_img[start_h:end_h, start_w:end_w] = trans_img[y_t:src_end_h, x_t:src_end_w]
+
+    repl_trans_mask = (repl_trans_mask > 0).astype(bool)
     assert (repl_trans_mask & constrain_area.astype(bool)).sum() == 0,'3D trans overlap problem, discard'
     # ddpm_region = exp_mask_cur * (1 - repl_trans_mask)
     final_image = np.where(repl_trans_mask[:, :, None], repl_trans_img, inp_cur)
 
     return final_image, repl_trans_mask
-def transform_3d(ori_img,ori_mask,inp_cur,angle_list_3d,constrain_area,edit_prompt_list_3d,edit_param_list_3d,elevations_deg=None,azimuths_deg=None,sv3d_model=None,sv3d_filter=None,ignore_constrain=False):
+def transform_3d(ori_img,ori_mask,inp_cur,angle_list_3d,constrain_area,edit_prompt_list_3d,edit_param_list_3d,elevations_deg=None,azimuths_deg=None,sv3d_model=None,sv3d_filter=None,):
     coarse_edit_list_3d, tgt_mask_list_3d,ddpm_region_list_3d = [],[],[]
-    img_list,in_w = sv3d_sample(version='sv3d_p', decoding_t=5, elevations_deg=elevations_deg,
+    img_list,side_len = sv3d_sample(version='sv3d_p', decoding_t=5, elevations_deg=elevations_deg,
                 azimuths_deg=azimuths_deg,input_img=ori_img,obj_mask=ori_mask,sv3d_model=sv3d_model,sv3d_filter=sv3d_filter)
     valid_edit_prompt_list = []
     valid_edit_param_list = []
@@ -695,9 +771,9 @@ def transform_3d(ori_img,ori_mask,inp_cur,angle_list_3d,constrain_area,edit_prom
         idx = np.array(azimuths_deg)==angle_select
         #idx ->
         trans_img = img_list[idx][0]
-        trans_img = cv2.resize(trans_img, (in_w, in_w))
+        trans_img = cv2.resize(trans_img, (side_len, side_len))
         try:
-            coarse_edit_res,transfered_mask = pasted_sv3d_back_to_img(ori_img, ori_mask,inp_cur,trans_img,constrain_area,ignore_constrain)
+            coarse_edit_res,transfered_mask = pasted_sv3d_back_to_img(ori_img, ori_mask,inp_cur,trans_img,constrain_area)
             coarse_edit_list_3d.append(coarse_edit_res)
             tgt_mask_list_3d.append(transfered_mask)
             valid_edit_prompt_list.append(cur_prompt)
@@ -709,45 +785,106 @@ def transform_3d(ori_img,ori_mask,inp_cur,angle_list_3d,constrain_area,edit_prom
     return coarse_edit_list_3d,tgt_mask_list_3d,valid_edit_prompt_list,valid_edit_param_list
 
 
-
-
-
-def sample_move_func(exp_mask, constrain_area, direction,level):
+def sample_move_func(exp_mask, constrain_area, direction, level, min_coverage=0.4):
     """
-    compare to full image and item itself
-    level1:
-    level2:
-    level3:
+    Move the object in a specified direction by a certain level, ensuring that
+    at least a certain percentage of the mask remains within the image boundaries.
+
+    Args:
+    - exp_mask (numpy.ndarray): The binary mask of the object to be moved.
+    - constrain_area (numpy.ndarray): The area that constrains the movement (height, width).
+    - direction (str): The direction of movement (e.g., 'left', 'right', 'up', 'down').
+    - level (str): The movement level ('level_1', 'level_2', 'level_3').
+    - min_coverage (float): The minimum percentage of the mask that must remain inside the image boundaries.
+
+    Returns:
+    - dx (int): The horizontal movement.
+    - dy (int): The vertical movement.
+    - out_of_img_boundary (bool): Whether the move results in the object being out of bounds.
     """
-    #dx dy sample from direction and level
-    #clip the boundary or fail case
-    dx,dy = 0,0
-    H, W = constrain_area.shape  # 图像的高度和宽度
-    x, y, w, h = cv2.boundingRect(exp_mask)
+    # print(f'new 2d sample func')
+    # Initialize movement values
+    dx, dy = 0, 0
+    H, W = constrain_area.shape  # Image height and width
+    x, y, w, h = cv2.boundingRect(exp_mask)  # Get bounding box of the mask
+
+    # Define movement ranges based on the level
     if level == 'level_1':
-        range_x =  (int(0.05*W),int(0.1*W))
-        range_y =  (int(0.05*H),int(0.1*H))
+        range_x = (int(0.05 * W), int(0.1 * W))
+        range_y = (int(0.05 * H), int(0.1 * H))
     elif level == 'level_2':
         range_x = (int(0.1 * W), int(0.2 * W))
         range_y = (int(0.1 * H), int(0.2 * H))
     elif level == 'level_3':
         range_x = (int(0.2 * W), int(0.4 * W))
         range_y = (int(0.2 * H), int(0.4 * H))
-        # Sample movement based on direction
+
+    out_of_img_boundary = False
+
+    # Sample movement based on direction
     if 'left' in direction:
         dx = -np.random.randint(range_x[0], range_x[1])
-        assert x-range_x[0]>=0,'move left lower bound error, discard'
+        if x + dx < 0:
+            out_of_img_boundary = True
     elif 'right' in direction:
         dx = np.random.randint(range_x[0], range_x[1])
-        assert x + w + range_x[0] <= W, 'move right lower bound error, discard'
+        if x + w + dx <= W:
+            out_of_img_boundary = True
     if 'up' in direction or 'upper' in direction:
         dy = -np.random.randint(range_y[0], range_y[1])
-        assert y - range_y[0] >= 0, 'move up lower bound error, discard'
+        if y + dy < 0:
+            out_of_img_boundary = True
     elif 'down' in direction or 'lower' in direction:
         dy = np.random.randint(range_y[0], range_y[1])
-        assert y + h + range_y[0] <= H, 'move down lower bound error, discard'
+        if y + h + dy <= H:
+            out_of_img_boundary = True
 
-    return dx, dy
+
+    return dx, dy, out_of_img_boundary
+# def sample_move_func(exp_mask, constrain_area, direction,level):
+#     """
+#     compare to full image and item itself
+#     level1:
+#     level2:
+#     level3:
+#     """
+#     #dx dy sample from direction and level
+#     #clip the boundary or fail case
+#     dx,dy = 0,0
+#     H, W = constrain_area.shape  # 图像的高度和宽度
+#     x, y, w, h = cv2.boundingRect(exp_mask)
+#     if level == 'level_1':
+#         range_x =  (int(0.05*W),int(0.1*W))
+#         range_y =  (int(0.05*H),int(0.1*H))
+#     elif level == 'level_2':
+#         range_x = (int(0.1 * W), int(0.2 * W))
+#         range_y = (int(0.1 * H), int(0.2 * H))
+#     elif level == 'level_3':
+#         range_x = (int(0.2 * W), int(0.4 * W))
+#         range_y = (int(0.2 * H), int(0.4 * H))
+#         # Sample movement based on direction
+#     out_of_img_boundary = False
+#     if 'left' in direction:
+#         dx = -np.random.randint(range_x[0], range_x[1])
+#         # assert x-range_x[0]>=0,'move left lower bound error, discard'
+#         if  x-range_x[0]>=0:
+#             out_of_img_boundary = True
+#     elif 'right' in direction:
+#         dx = np.random.randint(range_x[0], range_x[1])
+#         # assert x + w + range_x[0] <= W, 'move right lower bound error, discard'
+#         if  x + w + range_x[0] <= W:
+#             out_of_img_boundary = True
+#     if 'up' in direction or 'upper' in direction:
+#         dy = -np.random.randint(range_y[0], range_y[1])
+#         # assert y - range_y[0] >= 0, 'move up lower bound error, discard'
+#         if  y - range_y[0] >= 0:
+#             out_of_img_boundary = True
+#     elif 'down' in direction or 'lower' in direction:
+#         dy = np.random.randint(range_y[0], range_y[1])
+#         # assert y + h + range_y[0] <= H, 'move down lower bound error, discard'
+#         if  y + h + range_y[0] <= H:
+#             out_of_img_boundary = True
+#     return dx, dy , out_of_img_boundary
 
 def calculate_max_scale_1d(pos_center, length_half, limit, max_scale, scale_ratio=0.5):
     # 计算任意比例下的缩放边界
@@ -894,15 +1031,14 @@ def has_significant_difference(new_degree, existing_degrees, threshold=0.1):
 
 
 
-def gen_2D_edit_config_v2( exp_mask, constrain_area, edit_class, direction,level,ignore_constrain):
+def gen_2D_edit_config_v2( exp_mask, constrain_area, edit_class, direction,level):
     dx, dy, rotation_angle, resize_scale, flip_horizontal, flip_vertical = 0, 0, 0, (1,1), False, False  # default
     np.random.seed(int(time.time()))
     random_seed = np.random.randint(0, 2 ** 32 - 1)
     my_seed_everything(random_seed)
-    if ignore_constrain:
-        constrain_area = np.zeros_like(constrain_area)
+    out_of_img_boundary =  False
     if edit_class == 'move':
-        dx, dy = sample_move_func(exp_mask, constrain_area, direction,level)
+        dx, dy,out_of_img_boundary = sample_move_func(exp_mask, constrain_area, direction,level)
 
 
     elif edit_class == 'enlarge' or edit_class == 'shrink':
@@ -932,15 +1068,15 @@ def gen_2D_edit_config_v2( exp_mask, constrain_area, edit_class, direction,level
     #edit_param=[dx,dy,dz,rx,ry,rz,sx,sy,sz]
     #for 2D edit dz=rx=ry=0,sz=1
     edit_param = [dx,dy,0,0,0,rotation_angle,resize_scale[0],resize_scale[1],1]
-    return edit_config,edit_param
+    return edit_config,edit_param,out_of_img_boundary
 
 
-def generate_azimuth_angles(n_views_sv3d=21,angle_list_3d=None):
+def generate_azimuth_angles_new(n_views_sv3d=21,angle_list_3d=None):
     # 指定顺时针方向的角度
     half_len = len(angle_list_3d) // 2
-    forward_angles = np.array(angle_list_3d[:half_len])
+    forward_angles = np.array([ang for ang in angle_list_3d if ang>0] )
     # 指定逆时针方向的角度
-    backward_angles = np.array([360 + angle for angle in angle_list_3d[half_len:]])
+    backward_angles = np.array([360+ang for ang in angle_list_3d if ang<0])
 
     # 确保特定角度数量不超过总帧数
     assert len(forward_angles) + len(backward_angles) < n_views_sv3d, "指定的角度数量不能超过总帧数"
@@ -962,19 +1098,19 @@ def generate_azimuth_angles(n_views_sv3d=21,angle_list_3d=None):
     return list(azimuths_deg)
 
 
-def generate_editing_config_2d(exp_mask,constrain_area,obj_label,instructions,ignore_constrain):
 
+
+def generate_editing_config_2d(exp_mask,constrain_area,obj_label,instructions):
     # Step 1: 根据指令确定操作类型
     edit_class = instructions['type']
     prompt = instructions['prompt']
     direction = instructions['direction']
     level = instructions['degree']
-
-    edit_config,edit_param= gen_2D_edit_config_v2(exp_mask,constrain_area,edit_class,direction,level,ignore_constrain)
+    edit_config,edit_param,out_of_img_boundary= gen_2D_edit_config_v2(exp_mask,constrain_area,edit_class,direction,level)
     #'with regard to its center'
     edit_prompt = prompt.replace("{object}", obj_label)
 
-    return  edit_prompt,edit_config,edit_param
+    return  edit_prompt,edit_config,edit_param,out_of_img_boundary
 
 def generate_editing_config_3d(obj_label, instructions):
     # Step 1: 根据指令确定操作类型
@@ -993,7 +1129,7 @@ def generate_editing_config_3d(obj_label, instructions):
     if 'counterclockwise' in direction:
         sampled_degree = -sampled_degree
     #edit_param = [dx,dy,dz,rx,ry,rz,sx,sy,sz] default clock-wise
-    edit_param = [0,0,0,0,0,sampled_degree,1,1,1]
+    edit_param = [0,0,0,0,sampled_degree,0,1,1,1]
     edit_prompt = prompt.replace("{object}", obj_label)
     return edit_prompt,sampled_degree,edit_param
 
@@ -1017,14 +1153,12 @@ def judge_2d_3d(instuction):
     return edit_func_type
 
 
-def sample_edit_func_2d_celeb(ori_img,ori_mask,inp_cur,constrain_area,obj_label,instructions):
+def sample_edit_func_2d(ori_img,ori_mask,inp_cur,constrain_area,obj_label,instructions):
     #2D注意单独缩放x，y的矩阵手动实现。
-    omit_constrain_list = ['person', 'hat']
-    ignore_constrain = obj_label in omit_constrain_list
-    edit_prompt,edit_config,edit_param = generate_editing_config_2d(ori_mask,constrain_area,obj_label,instructions,ignore_constrain)
+    edit_prompt,edit_config,edit_param,out_of_img_boundary = generate_editing_config_2d(ori_mask,constrain_area,obj_label,instructions)
 
-    coarse_edit_res,target_mask=transform_2d(ori_img,ori_mask,inp_cur,edit_config,constrain_area,ignore_constrain)
-    return coarse_edit_res,target_mask,edit_prompt,edit_param
+    coarse_edit_res,target_mask=transform_2d(ori_img,ori_mask,inp_cur,edit_config,constrain_area,out_of_img_boundary=out_of_img_boundary )
+    return coarse_edit_res,target_mask,edit_prompt,edit_param,out_of_img_boundary
 def get_constrain_areas(mask_list_path):
     mask_list = [cv2.imread(pa) for pa in mask_list_path]
     if len(mask_list)>0:
@@ -1034,144 +1168,74 @@ def get_constrain_areas(mask_list_path):
         constrain_areas +=mask
     constrain_areas[constrain_areas>0] =1
     return constrain_areas[:,:,0]
-def get_constrain_areas_celeb(mask_list_path,obj_label_list):
-    mask_list = [cv2.imread(pa) for pa in mask_list_path]
-    if len(mask_list)>0:
-        constrain_areas = np.zeros_like(mask_list[0])
-    for idx,mask in enumerate(mask_list):
-        if obj_label_list[idx] == 'person':
-            continue
-        mask[mask>0] = 1
-        constrain_areas +=mask
-    constrain_areas[constrain_areas>0] =1
-    return constrain_areas[:,:,0]
 
 
 
 
 
-def main(data_id, base_dir):
-    dst_base = osp.join(base_dir, f'Subset_{data_id}')
-    if osp.exists(osp.join(dst_base,f"coarse_input_full_pack_{data_id}.json")):
-        print(f'coarse edit for {data_id} already finish!')
-        return
-    if osp.exists(osp.join(dst_base,f"temp_file_coarse.json")): #resume
-        new_data = load_json(osp.join(dst_base,f"temp_file_coarse.json"))
-    else:
-        new_data = dict()
-    dataset_json_file = osp.join(dst_base,f"mat_fooocus_inpainting_{data_id}.json")
-    dst_coarse_inp_path = osp.join(dst_base,"coarse_input")
-    dst_target_msk_path = osp.join(dst_base,"target_mask")
-    # dst_ddpm_reg_path = osp.join(dst_base,"ddpm_region")
-    data = load_json(dataset_json_file)
-    model,filter=load_sv3d(version='sv3d_p')
+if __name__ == '__main__':
+    model, filter = load_sv3d(version='sv3d_p')
     # data_parts = split_data(data, 3,subset_num=210,seed=42)
     device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
-    #load data：
-        #0：
-            #'image_path'
-            #'instances':
-                #'mask_path','exp_math_path','inp_img_path','obj_label_path'
-    #save data:
-        # 0：img_id
-        # 'instances':attr
-            #0 ins_id
-                 #0 sample_id
-                    # edit_prompt','ori_mask_path','tgt_mask_path','ori_img_path','coarse_input_path',;obj_label'
-                 #1
-                    # edit_prompt','ori_mask_path','tgt_mask_path','ori_img_path','coarse_input_path',;obj_label'
-            #1:...
-        #...
-
-    for da_n, da in tqdm(data.items(), desc=f'Proceeding coarse editing (Part {data_id})'):
-
-        if 'instances' not in da.keys():
-            print(f'skip {da_n} for not valid instance')
-            continue
-        image_path = da['src_img_path']
-        caption = da['caption']
-        instances = da['instances']
-        if da_n in new_data.keys() and '0' in new_data[da_n]['instances'].keys():
-            print(f'\n skip {da_n} for already exist')
-            continue
-
-        new_data[da_n] = dict()
-        new_data[da_n]['src_img_path'] = image_path
-        new_data[da_n]['caption'] = caption
-        new_data[da_n]['instances'] = dict()
-
-
-        mask_list = instances['mask_path'] #modified with completion masks
-        # exp_mask_list = instances['exp_mask_path']
-        inp_img_list = instances['inp_img_path']
-        obj_label_list = instances['obj_label']
-        #other configs
-        img = read_img(image_path)
-        img = resize_img(img,size=[512,512])
-        w, h = img.shape[:2]
-        #resize img
-        #rm bg
-        constrain_areas = get_constrain_areas_celeb(mask_list,obj_label_list)
-        # temp_view(constrain_areas)
-        # constrain_areas_strict = get_constrain_areas(exp_mask_list)
-        for ins_id in range(len(inp_img_list)):#ins_id
-            sample_dict = dict()
-            mask_path,inp_path,obj_label = mask_list[ins_id],inp_img_list[ins_id],obj_label_list[ins_id]
-            mask_cur =  cv2.resize( cv2.imread(mask_path)[:,:,0], (h, w))
-            constrain_areas = cv2.resize(constrain_areas, (h, w))
-            inp_cur = cv2.resize(read_img(inp_path), (h, w))
-            # exp_mask_cur =  cv2.resize(cv2.imread(exp_mask_path)[:,:,0], (h, w))
-            cons_area = np.where(mask_cur.astype(bool),0,constrain_areas)
-            edit_prompt_list,edit_param_list,coarse_res_list,tgt_mask_list= coarse_edit_func_v2_celeb(img,mask_cur,inp_cur,cons_area,obj_label,sv3d_model=model,sv3d_filter=filter)
-
-            for sample_id,edit_prompt in enumerate(edit_prompt_list):#sample_id
-                coarse_input = coarse_res_list[sample_id]
-                target_mask = tgt_mask_list[sample_id]
-                edit_param = edit_param_list[sample_id]
-                # ddpm_mask = ddpm_region_list[sample_id]
-                #save coarse img and mask
-                tgt_mask_path = save_mask(target_mask,dst_target_msk_path,da_n,ins_id,sample_id)#save_masks(target_mask)
-                coarse_img_path = save_img(coarse_input,dst_coarse_inp_path,da_n,ins_id,sample_id)  # save_img(coarse_input)
-                # ddpm_region_path = save_mask(ddpm_mask ,dst_ddpm_reg_path,da_n,ins_id,sample_id)
-                per_edit_data = dict()
-                per_edit_data['edit_prompt'] = edit_prompt
-                per_edit_data['src_img_path'] = image_path
-                # per_edit_data['tag_caption'] = caption
-                per_edit_data['obj_label'] = obj_label
-                per_edit_data['ori_mask_path'] = mask_path
-                per_edit_data['tgt_mask_path'] = tgt_mask_path
-                per_edit_data['coarse_input_path'] = coarse_img_path
-                per_edit_data['edit_param'] = edit_param
-                # per_edit_data['ddpm_region_path'] = ddpm_region_path
-                sample_dict[sample_id] = per_edit_data
-                if len(sample_dict)==0:
-                    continue
-            new_data[da_n]['instances'][ins_id] = sample_dict
-            #save temp file for resume
-            save_json(new_data, osp.join(dst_base, f"temp_file_coarse.json"))
-    save_json(new_data,osp.join(dst_base,f"coarse_input_full_pack_{data_id}.json"))
-    #remove temp file
-    os.remove(osp.join(dst_base, f"temp_file_coarse.json"))
-
-
-if __name__ == "__main__":
-
-    #this code is designed specially for celebA-HQ dataset
-    #for partial moving can be constrained very specific
-    # 使用 argparse 解析命令行参数
-    parser = argparse.ArgumentParser(description="GroundingSAM processing script")
-    parser.add_argument('--data_id', type=int, required=True, help="Data ID to process")
-    parser.add_argument('--base_dir', type=str, required=True, help="Base directory path for dataset")
-    # parser.add_argument('--gpu_id', type=int, default=0, help="Specify the GPU to use. Default is GPU 0")
-
-    args = parser.parse_args()
+    image_path = "../vis_demo/ori_img.png" #replace with your own
+    mask_path = "../vis_demo/ori_mask.png"
+    inp_path = '../vis_demo/bg_img.png' 
+    #replace with your own , note that inp_path=None is also allowed in this script so you can do 3D coarse edit without background generation
 
 
 
+    img = read_img(image_path)
+    img = resize_img(img,size=[512,512])
+    w, h = img.shape[:2]
 
-    # 在需要时使用 device
-    # model.to(device)
-    # tensor = tensor.to(device)
+    mask_cur =  cv2.resize( cv2.imread(mask_path)[:,:,0], (h, w), interpolation=cv2.INTER_NEAREST)
+    mask_cur[mask_cur>0] = 1
 
-    # 调用主逻辑并传入设备
-    main(args.data_id, args.base_dir)
+    if inp_path is not None:
+        inp_cur = cv2.resize(read_img(inp_path), (h, w))
+    else:
+        inp_cur = np.where(mask_cur[:, :, None], 0, img) # move with expansion pixels but inpaint
+
+    
+    # sampled_degree = int(np.round(np.random.uniform(range_rotate[0], range_rotate[1]), 2))
+    # if 'counterclockwise' in direction:
+    #     sampled_degree = -sampled_degree
+    # edit_param = [dx,dy,dz,rx,ry,rz,sx,sy,sz] default clock-wise
+    # edit_param = [0, 0, 0, 0, sampled_degree, 0, 1, 1, 1]
+
+    edit_param = [0.0, 0.0, 0.0, 0.0, -6.0, 0.0, 1.0, 1.0, 1.0] #replace with your own 
+    demo_edit_degree = edit_param[4] # Positive value for ry means clockwise rotation
+    # Prepare your own angle_list_3d
+
+    # List of angles for 3D view generation (can be in any order, length must not exceed n_views_sv3d default value 21)
+    # Since SV3D generates orbit video based on degrees, you can perform multiple edits in one run
+    angle_list_3d = [demo_edit_degree, -demo_edit_degree, 2*demo_edit_degree, -2*demo_edit_degree, 3*demo_edit_degree, -3*demo_edit_degree, 4*demo_edit_degree, -4*demo_edit_degree]
+
+    if len(angle_list_3d) > 0:
+
+        elevations_deg= 10  # default
+        azimuths_deg= generate_azimuth_angles_new(n_views_sv3d=21, angle_list_3d=angle_list_3d)
+
+        img_list, side_len = sv3d_sample(version='sv3d_p', decoding_t=5, elevations_deg= elevations_deg,
+                                         azimuths_deg= azimuths_deg, input_img=img, obj_mask=mask_cur,
+                                         sv3d_model=model, sv3d_filter=filter)
+        valid_edit_prompt_list = []
+        valid_edit_param_list = []
+        for edit_index, angle_select in enumerate(angle_list_3d):
+            if angle_select <0:
+                ac_angle_select = 360 + angle_select
+            idx = np.array(azimuths_deg) == ac_angle_select
+            # idx ->
+            trans_img = img_list[idx][0]
+            trans_img = cv2.resize(trans_img, (side_len, side_len))
+            coarse_edit_res, transfered_mask = pasted_sv3d_back_to_img_easy(img, mask_cur, inp_cur, trans_img,)
+            temp_view_img(coarse_edit_res)
+            temp_view_img(transfered_mask)
+            if demo_edit_degree != angle_select:
+                continue
+                # coarse = Image.fromarray(coarse_edit_res).save(f"../vis_demo/coarse_3d_degree_{angle_select}.png")
+                # target_mask = Image.fromarray(transfered_mask).save(f"../vis_demo/target_mask_3d_degree_{angle_select}.png")
+            else:
+                #extract demo results
+                coarse = Image.fromarray(coarse_edit_res).save(f"../vis_demo/coarse_input.png")
+                target_mask = Image.fromarray(transfered_mask).save(f"../vis_demo/target_mask.png")
