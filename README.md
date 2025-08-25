@@ -133,6 +133,7 @@ python app.py
 [2] <a href=https://github.com/google/prompt-to-prompt>**PROMPT-TO-PROMPT IMAGE EDITING WITH CROSS-ATTENTION CONTROL**</a></p>
 [3] <a href=https://github.com/Stability-AI/generative-models>**SV3D: Novel Multi-view Synthesis and 3D Generation from a Single Image using Latent Video Diffusion**</a></p>
 [4] <a href=https://github.com/LiheYoung/Depth-Anything>**Depth Anything: Unleashing the Power of Large-Scale Unlabeled Data**</a></p>
+[5] <a href=https://github.com/RahulSajnani/GeoDiffuser>**GeoDiffuser: Geometry-Based Image Editing with Diffusion Models**</a></p>
 
 
 ## 📜 Citation  
