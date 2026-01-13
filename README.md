@@ -1,9 +1,3 @@
-
-# **Notice**: 
-Note: Code is still in maintenance. Releasing initial version.
-
-
-
 # FreeFine: Training-Free Diffusion for Geometric Image Editing
 <p align="left">
   <a href="https://github.com/CIawevy/FreeFine">
@@ -138,9 +132,11 @@ python app.py
 
 ## 📜 Citation  
 ```bibtex
-@inproceedings{freefine2025,
-  title={Training-Free Diffusion for Geometric Image Editing}, 
+@inproceedings{zhu2025training,
+  title={Training-free Geometric Image Editing on Diffusion Models},
   author={Zhu, Hanshen and Zhu, Zhen and Zhang, Kaile and Gong, Yiming and Liu, Yuliang and Bai, Xiang},
-  booktitle={ICCV}, 
+  booktitle={Proceedings of the IEEE/CVF International Conference on Computer Vision},
+  pages={19130--19140},
   year={2025}
 }
+
